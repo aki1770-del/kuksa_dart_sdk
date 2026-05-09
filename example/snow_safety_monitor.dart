@@ -15,7 +15,7 @@ void main() async {
 
   // Print databroker version
   final info = await client.getServerInfo();
-  print('Connected to KUKSA databroker ${info.version} (${info.commit})');
+  print('Connected to KUKSA databroker ${info.version} (${info.commitHash})');
 
   // One-shot read — current road friction
   final friction = await client.getValue(kRoadFrictionMostProbable);

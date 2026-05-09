@@ -4,10 +4,10 @@ description: >
   (kuksa-databroker v2). Provides typed access to Vehicle Signal Specification
   (VSS) signals — including road friction, traction, tire pressure, and wiper
   intensity — for driver-assisting navigation applications on embedded Linux IVI.
-version: 0.1.0
-homepage: https://github.com/aki1770/kuksa_dart_sdk
-repository: https://github.com/aki1770/kuksa_dart_sdk
-issue_tracker: https://github.com/aki1770/kuksa_dart_sdk/issues
+version: 0.2.0
+homepage: https://github.com/aki1770-del/kuksa_dart_sdk
+repository: https://github.com/aki1770-del/kuksa_dart_sdk
+issue_tracker: https://github.com/aki1770-del/kuksa_dart_sdk/issues
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
