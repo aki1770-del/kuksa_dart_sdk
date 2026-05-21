@@ -22,7 +22,8 @@ void main() async {
   if (friction.hasValue) {
     print('Current road friction: ${friction.floatValue?.toStringAsFixed(2)}');
   } else {
-    print('Road friction signal not available (no ESC module or not running on vehicle)');
+    print(
+        'Road friction signal not available (no ESC module or not running on vehicle)');
   }
 
   // Continuous snow-safety subscription
@@ -50,9 +51,12 @@ void _handleUpdate(Map<String, Datapoint> update) {
   final bool belowFreezing = temp != null && temp < 2.0;
   final bool heavyPrecipitation = (wiper ?? 0) >= 3 || (rain ?? 0) >= 60;
 
-  final int alarmLevel = [lowFriction, activeTraction, activeAbs, belowFreezing && heavyPrecipitation]
-      .where((b) => b)
-      .length;
+  final int alarmLevel = [
+    lowFriction,
+    activeTraction,
+    activeAbs,
+    belowFreezing && heavyPrecipitation
+  ].where((b) => b).length;
 
   if (alarmLevel == 0 && update.isEmpty) return; // no meaningful update
 

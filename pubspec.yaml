@@ -1,10 +1,8 @@
 name: kuksa_dart_sdk
 description: >
-  Dart/Flutter client SDK for the Eclipse KUKSA Vehicle Abstraction Layer
-  (kuksa-databroker v2). Provides typed access to Vehicle Signal Specification
-  (VSS) signals — including road friction, traction, tire pressure, and wiper
-  intensity — for driver-assisting navigation applications on embedded Linux IVI.
-version: 0.2.0
+  Dart/Flutter client SDK for the Eclipse KUKSA databroker (v2): typed access to
+  Vehicle Signal Specification (VSS) signals for embedded Linux IVI navigation.
+version: 0.2.1
 homepage: https://github.com/aki1770-del/kuksa_dart_sdk
 repository: https://github.com/aki1770-del/kuksa_dart_sdk
 issue_tracker: https://github.com/aki1770-del/kuksa_dart_sdk/issues

@@ -144,12 +144,10 @@ class KuksaClient {
       bufferSize: bufferSize,
     );
 
-    return _client
-        .subscribe(request, options: _callOptions)
-        .map((response) => {
-              for (final entry in response.entries.entries)
-                entry.key: Datapoint(raw: entry.value, path: entry.key),
-            });
+    return _client.subscribe(request, options: _callOptions).map((response) => {
+          for (final entry in response.entries.entries)
+            entry.key: Datapoint(raw: entry.value, path: entry.key),
+        });
   }
 
   /// Queries the server metadata for a list of signal paths or a pattern.

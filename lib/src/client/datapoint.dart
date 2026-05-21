@@ -84,9 +84,13 @@ class Datapoint {
     if (v.hasStringArray()) return v.stringArray.values;
     if (v.hasBoolArray()) return v.boolArray.values;
     if (v.hasInt32Array()) return v.int32Array.values;
-    if (v.hasInt64Array()) return v.int64Array.values.map((i) => i.toInt()).toList();
+    if (v.hasInt64Array()) {
+      return v.int64Array.values.map((i) => i.toInt()).toList();
+    }
     if (v.hasUint32Array()) return v.uint32Array.values;
-    if (v.hasUint64Array()) return v.uint64Array.values.map((i) => i.toInt()).toList();
+    if (v.hasUint64Array()) {
+      return v.uint64Array.values.map((i) => i.toInt()).toList();
+    }
     if (v.hasFloatArray()) return v.floatArray.values;
     if (v.hasDoubleArray()) return v.doubleArray.values;
     return null;
@@ -94,14 +98,21 @@ class Datapoint {
 
   /// Convenience accessors — return null if the signal has a different type.
 
-  String? get stringValue => type == DatapointType.string ? raw.value.string : null;
-  bool? get boolValue => type == DatapointType.boolean ? raw.value.bool_12 : null;
+  String? get stringValue =>
+      type == DatapointType.string ? raw.value.string : null;
+  bool? get boolValue =>
+      type == DatapointType.boolean ? raw.value.bool_12 : null;
   int? get int32Value => type == DatapointType.int32 ? raw.value.int32 : null;
-  int? get int64Value => type == DatapointType.int64 ? raw.value.int64.toInt() : null;
-  int? get uint32Value => type == DatapointType.uint32 ? raw.value.uint32 : null;
-  int? get uint64Value => type == DatapointType.uint64 ? raw.value.uint64.toInt() : null;
-  double? get floatValue => type == DatapointType.float ? raw.value.float.toDouble() : null;
-  double? get doubleValue => type == DatapointType.double_ ? raw.value.double_18 : null;
+  int? get int64Value =>
+      type == DatapointType.int64 ? raw.value.int64.toInt() : null;
+  int? get uint32Value =>
+      type == DatapointType.uint32 ? raw.value.uint32 : null;
+  int? get uint64Value =>
+      type == DatapointType.uint64 ? raw.value.uint64.toInt() : null;
+  double? get floatValue =>
+      type == DatapointType.float ? raw.value.float.toDouble() : null;
+  double? get doubleValue =>
+      type == DatapointType.double_ ? raw.value.double_18 : null;
 
   @override
   String toString() => 'Datapoint($path: ${value ?? "none"})';

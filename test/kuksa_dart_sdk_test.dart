@@ -1,7 +1,6 @@
 import 'package:kuksa_dart_sdk/kuksa_dart_sdk.dart';
 import 'package:test/test.dart';
 
-import 'package:kuksa_dart_sdk/src/client/datapoint.dart';
 import 'package:kuksa_dart_sdk/src/generated/kuksa/val/v2/types.pb.dart' as pb;
 
 void main() {
@@ -17,8 +16,7 @@ void main() {
     test('floatValue returns correct value for float datapoint', () {
       final value = pb.Value()..float = 0.25;
       final raw = pb.Datapoint()..value = value;
-      final dp = Datapoint(
-          raw: raw, path: kRoadFrictionMostProbable);
+      final dp = Datapoint(raw: raw, path: kRoadFrictionMostProbable);
       expect(dp.hasValue, isTrue);
       expect(dp.type, DatapointType.float);
       expect(dp.floatValue, closeTo(0.25, 0.001));
@@ -50,8 +48,7 @@ void main() {
     test('toString includes path and value', () {
       final value = pb.Value()..float = 0.8;
       final raw = pb.Datapoint()..value = value;
-      final dp =
-          Datapoint(raw: raw, path: kRoadFrictionMostProbable);
+      final dp = Datapoint(raw: raw, path: kRoadFrictionMostProbable);
       expect(dp.toString(), contains(kRoadFrictionMostProbable));
     });
   });
