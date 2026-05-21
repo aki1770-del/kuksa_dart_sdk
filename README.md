@@ -102,7 +102,7 @@ Flutter / Dart app
   VSS signals: friction, TCS, ABS, wiper, temperature, TPMS
 ```
 
-This package is part of the [SNGNav](https://github.com/aki1770) winter navigation stack.
+This package is part of the [SNGNav](https://github.com/aki1770-del/SNGNav) winter navigation stack.
 The `navigation_safety` package consumes KUKSA signals via `kuksa_dart_sdk` to adapt
 routing decisions in real-time based on road surface conditions.
 
