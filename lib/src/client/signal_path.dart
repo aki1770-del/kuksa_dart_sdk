@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Akihiko Komada <aki1770@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 /// VSS signal path constants relevant to snow and road safety navigation.
 ///
 /// These are the signals that flow from vehicle ECUs through KUKSA databroker

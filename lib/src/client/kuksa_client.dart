@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Akihiko Komada <aki1770@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 /// KUKSA Vehicle Abstraction Layer — Dart client.
 ///
 /// Connects to a running [kuksa-databroker](https://github.com/eclipse-kuksa/kuksa-databroker)

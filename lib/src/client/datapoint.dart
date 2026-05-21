@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Akihiko Komada <aki1770@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 /// Dart-idiomatic wrapper around the generated [kuksa.val.v2.Datapoint] message.
 ///
 /// Provides a typed [value] getter and helpers for each VSS primitive type

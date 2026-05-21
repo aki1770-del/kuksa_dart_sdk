@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Akihiko Komada <aki1770@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 import 'package:kuksa_dart_sdk/kuksa_dart_sdk.dart';
 import 'package:test/test.dart';
 

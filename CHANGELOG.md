@@ -1,3 +1,12 @@
+## 0.2.2
+
+- Add `SPDX-License-Identifier: Apache-2.0` headers to all hand-authored Dart
+  sources (5 files) for Eclipse machine-readable license-compliance (per
+  eclipse-kuksa/kuksa-actions SPDX check). Generated protoc output under
+  `lib/src/generated/` is left to the codegen step and not hand-edited.
+  `LICENSE` (canonical verbatim Apache-2.0) is unchanged — license detection
+  reads that file, not source headers.
+
 ## 0.2.1
 
 - Fix `license:unknown` by replacing `LICENSE` with the canonical, verbatim

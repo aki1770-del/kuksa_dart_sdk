@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Akihiko Komada <aki1770@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+
 /// KUKSA Dart SDK — Dart/Flutter client for the Eclipse KUKSA Vehicle
 /// Abstraction Layer (kuksa-databroker v2).
 ///
