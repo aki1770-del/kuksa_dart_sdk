@@ -153,6 +153,64 @@ class KuksaClient {
         });
   }
 
+  /// Publishes a single value for [path] to the databroker.
+  ///
+  /// This is the provider-side write path (`kuksa.val.v2.VAL/PublishValue`):
+  /// a provider claiming a signal pushes its current value so consumers can
+  /// read or subscribe to it.
+  ///
+  /// [value] is mapped to the matching VSS primitive by its Dart runtime type:
+  ///
+  /// | Dart type      | VSS value field |
+  /// |----------------|-----------------|
+  /// | `bool`         | `bool`          |
+  /// | `int`          | `int32`         |
+  /// | `double`       | `float`         |
+  /// | `String`       | `string`        |
+  ///
+  /// For wider or unsigned integer types, array types, or explicit `double`
+  /// (vs `float`) precision, construct the [pb_types.Value] yourself and use
+  /// [publishDatapoint].
+  ///
+  /// Example:
+  /// ```dart
+  /// await client.publishValue('Vehicle.Speed', 100.34);
+  /// ```
+  Future<void> publishValue(String path, Object value) {
+    final pb_types.Value v;
+    if (value is bool) {
+      v = pb_types.Value(bool_12: value);
+    } else if (value is int) {
+      v = pb_types.Value(int32: value);
+    } else if (value is double) {
+      v = pb_types.Value(float: value);
+    } else if (value is String) {
+      v = pb_types.Value(string: value);
+    } else {
+      throw ArgumentError.value(
+        value,
+        'value',
+        'Unsupported Dart type for publishValue. Pass bool, int, double, or '
+            'String, or use publishDatapoint() with an explicit Value.',
+      );
+    }
+    return publishDatapoint(path, pb_types.Datapoint(value: v));
+  }
+
+  /// Publishes a fully-formed [datapoint] for [path] to the databroker.
+  ///
+  /// Use this when you need control over the value type (e.g. unsigned or
+  /// 64-bit integers, arrays, or a timestamp) beyond what [publishValue]'s
+  /// Dart-type mapping covers.
+  Future<void> publishDatapoint(
+      String path, pb_types.Datapoint datapoint) async {
+    final request = pb.PublishValueRequest(
+      signalId: pb_types.SignalID(path: path),
+      dataPoint: datapoint,
+    );
+    await _client.publishValue(request, options: _callOptions);
+  }
+
   /// Queries the server metadata for a list of signal paths or a pattern.
   ///
   /// [filter] is an optional VSS path prefix/glob (e.g., `"Vehicle.ADAS.*"`).

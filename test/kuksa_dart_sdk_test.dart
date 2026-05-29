@@ -101,5 +101,21 @@ void main() {
         throwsA(isA<StateError>()),
       );
     });
+
+    test('throws StateError if publishValue called before connect', () async {
+      final client = KuksaClient(host: 'localhost');
+      expect(
+        () async => await client.publishValue(kVehicleSpeed, 100.34),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('publishValue rejects unsupported Dart value type', () {
+      final client = KuksaClient(host: 'localhost');
+      expect(
+        () => client.publishValue(kVehicleSpeed, DateTime.now()),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
   });
 }

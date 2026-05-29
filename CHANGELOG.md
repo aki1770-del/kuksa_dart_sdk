@@ -1,3 +1,18 @@
+## 0.2.3
+
+- Add `publishValue(path, value)` and `publishDatapoint(path, datapoint)` to
+  `KuksaClient` — thin, additive wrappers over the generated `kuksa.val.v2`
+  `publishValue` stub. `publishValue` maps Dart runtime types (`bool`/`int`/
+  `double`/`String`) to the VSS `Value` oneof; `publishDatapoint` is the escape
+  hatch for unsigned/64-bit/array/timestamped values. No breaking changes.
+- Add `example/kuksa_val_v2.dart` — a vendor-neutral sample mirroring the
+  upstream Rust/Python `kuksa.val.v2` examples (connect → getServerInfo →
+  getValue → publishValue → listMetadata → subscribe on `Vehicle.Speed`).
+  BDE-verified green against `kuksa-databroker:main` (0.7.0-dev.0, VSS 6.0).
+- `example/README.md`: upstream-style quickstart (databroker `docker run` +
+  connect→subscribe→read→write); `snow_safety_monitor.dart` retained as the
+  domain showcase.
+
 ## 0.2.2
 
 - Add `SPDX-License-Identifier: Apache-2.0` headers to all hand-authored Dart
