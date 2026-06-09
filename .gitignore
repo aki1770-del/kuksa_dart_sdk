@@ -1,0 +1,18 @@
+# Dart / Flutter build artifacts
+.dart_tool/
+.packages
+build/
+.pub-cache/
+.pub/
+
+# Library packages do not commit the lockfile
+pubspec.lock
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
