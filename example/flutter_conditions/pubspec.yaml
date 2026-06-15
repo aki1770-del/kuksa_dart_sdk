@@ -1,0 +1,29 @@
+name: flutter_conditions
+description: >
+  Minimal Flutter example for the kuksa_dart_sdk client: a widget that
+  subscribes to snow/winter driving-safety VSS signals from an Eclipse KUKSA
+  databroker and renders a deterministic "driving conditions" card — with a
+  correct stream lifecycle (subscribe on init, cancel on dispose, degrade to
+  UNKNOWN on error/done, clean reconnect). Demonstration, not safety-critical.
+# Runnable example, not a publishable package.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The client SDK this example exists to demonstrate, via a local path dep.
+  kuksa_dart_sdk:
+    path: ../..
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

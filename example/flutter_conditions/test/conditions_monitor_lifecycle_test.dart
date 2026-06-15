@@ -1,0 +1,142 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Lifecycle tests for ConditionsMonitor against a fake source — no databroker.
+//
+// These pin down the behaviour an always-on vehicle UI needs and that naive
+// Flutter examples tend to get wrong ("subscription stops working after a
+// while"): subscribe on init, degrade to an HONEST UNKNOWN on error/done,
+// reconnect on a fresh stream, and ALWAYS cancel on dispose.
+
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:flutter_conditions/conditions_monitor.dart';
+import 'package:flutter_conditions/conditions_source.dart';
+import 'package:flutter_conditions/driving_conditions.dart';
+
+/// A source whose stream we drive by hand, recording each opened controller so
+/// we can assert subscribe / cancel behaviour.
+class FakeConditionsSource implements ConditionsSource {
+  final List<StreamController<DrivingConditions>> controllers = [];
+  bool disposed = false;
+
+  StreamController<DrivingConditions> get latest => controllers.last;
+
+  @override
+  Stream<DrivingConditions> conditions() {
+    final controller = StreamController<DrivingConditions>();
+    controllers.add(controller);
+    return controller.stream;
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposed = true;
+  }
+}
+
+Widget _host(ConditionsSource source) =>
+    MaterialApp(home: Scaffold(body: ConditionsMonitor(source: source)));
+
+const _ice = DrivingConditions(
+  roadFriction: 0.18,
+  tcsEngaged: true,
+  airTempC: -6.0,
+  wiperIntensity: 5,
+);
+
+void main() {
+  testWidgets('subscribes on init and shows UNKNOWN until first data',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    expect(source.controllers.length, 1);
+    expect(source.latest.hasListener, isTrue);
+    expect(find.text('UNKNOWN'), findsOneWidget);
+    expect(find.text('Connecting…'), findsOneWidget);
+  });
+
+  testWidgets('a received assessment drives the card (live)', (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    source.latest.add(_ice);
+    await tester.pump();
+
+    expect(find.text('ICE'), findsOneWidget);
+    expect(find.text('Live'), findsOneWidget);
+  });
+
+  testWidgets('stream error degrades to UNKNOWN and never keeps a stale reading',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    source.latest.add(_ice);
+    await tester.pump();
+    expect(find.text('ICE'), findsOneWidget);
+
+    source.latest.addError(StateError('gRPC stream broke after a while'));
+    await tester.pump(); // deliver the error event
+    await tester.pump(); // rebuild after onError's setState
+
+    expect(find.text('ICE'), findsNothing); // no stale reading
+    expect(find.text('UNKNOWN'), findsOneWidget); // honest degrade
+    expect(find.text('Signal lost'), findsOneWidget);
+    expect(find.text('Reconnect'), findsOneWidget);
+  });
+
+  testWidgets('stream done (server ended) degrades and offers reconnect',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    await source.latest.close(); // onDone
+    await tester.pump();
+
+    expect(find.text('UNKNOWN'), findsOneWidget);
+    expect(find.text('Stream ended'), findsOneWidget);
+    expect(find.text('Reconnect'), findsOneWidget);
+  });
+
+  testWidgets('reconnect cancels the old subscription and subscribes fresh',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    source.latest.addError(StateError('boom'));
+    await tester.pump();
+
+    final firstController = source.controllers.first;
+    expect(firstController.hasListener, isTrue);
+
+    await tester.tap(find.text('Reconnect'));
+    await tester.pump();
+
+    expect(source.controllers.length, 2); // a fresh stream was opened
+    expect(source.latest.hasListener, isTrue);
+    expect(firstController.hasListener, isFalse); // old one cancelled
+    expect(find.text('Connecting…'), findsOneWidget);
+
+    // The fresh stream works.
+    source.latest.add(_ice);
+    await tester.pump();
+    expect(find.text('ICE'), findsOneWidget);
+  });
+
+  testWidgets('dispose cancels the subscription and disposes the source',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+    expect(source.latest.hasListener, isTrue);
+
+    // Unmount the monitor.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+
+    expect(source.controllers.first.hasListener, isFalse); // cancelled
+    expect(source.disposed, isTrue); // transport released
+  });
+}
