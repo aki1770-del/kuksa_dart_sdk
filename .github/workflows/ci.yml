@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2026 Akihiko Komada <aki1770@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly, so an upstream VSS change that would make our documentation untrue
+  # is caught by the machine and not by a driver.
+  schedule:
+    - cron: '17 4 * * 1'
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed lib test tool example/snow_safety_monitor.dart example/kuksa_val_v2.dart
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      - name: Run tests (includes the VSS conformance suite)
+        run: dart test --reporter=expanded
+
+      # The README's signal table is generated from the vendored spec. If a
+      # human edited the table by hand, or the spec moved, this fails.
+      - name: README signal table is in sync with the vendored spec
+        run: dart run tool/gen_signal_table.dart --check
+
+  vss-upstream-drift:
+    # Re-fetches the COVESA spec and diffs it against spec/. Fails loudly if
+    # upstream changed a signal's datatype, unit, min or max — the situation in
+    # which our documentation would silently stop being true.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diff vendored VSS against COVESA upstream
+        run: bash tool/vss_sync.sh
+
+  flutter-example:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: example/flutter_conditions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
