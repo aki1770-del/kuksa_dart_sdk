@@ -41,7 +41,7 @@ Widget _host(ConditionsSource source) =>
     MaterialApp(home: Scaffold(body: ConditionsMonitor(source: source)));
 
 const _ice = DrivingConditions(
-  roadFriction: 0.18,
+  roadFriction: 18.0, // percent — VSS 0-100; a real ESC on black ice
   tcsEngaged: true,
   airTempC: -6.0,
   wiperIntensity: 5,

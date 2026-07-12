@@ -147,7 +147,7 @@ void main() {
       tester,
       'conditions_ice',
       const DrivingConditions(
-        roadFriction: 0.18,
+        roadFriction: 18.0, // percent — VSS 0-100; a real ESC on black ice
         tcsEngaged: true,
         absEngaged: true,
         airTempC: -6.0,
@@ -170,7 +170,7 @@ void main() {
       tester,
       'conditions_dry',
       const DrivingConditions(
-        roadFriction: 0.92,
+        roadFriction: 92.0, // percent — good grip
         tcsEngaged: false,
         absEngaged: false,
         airTempC: 12.0,

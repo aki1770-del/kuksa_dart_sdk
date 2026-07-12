@@ -93,7 +93,7 @@ class DrivingConditionsCard extends StatelessWidget {
     final c = conditions;
     final out = <String>[];
     if (c.roadFriction != null) {
-      out.add('Road friction ${c.roadFriction!.toStringAsFixed(2)}');
+      out.add('Road friction ${c.roadFriction!.toStringAsFixed(0)}%');
     }
     if (c.tcsEngaged != null) {
       out.add('Traction control ${c.tcsEngaged! ? "ENGAGED" : "off"}');

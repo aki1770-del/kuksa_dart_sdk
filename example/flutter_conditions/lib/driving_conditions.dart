@@ -38,9 +38,17 @@ enum SurfaceState {
 /// All fields are nullable: `null` means "the vehicle did not report this
 /// signal", which is materially different from a zero value.
 class DrivingConditions {
-  /// Road friction estimate, 0.0–1.0 (`< 0.3` ≈ icy). VSS:
+  /// Road friction estimate in **percent** (VSS range 0–100; below 30 ≈ icy).
+  /// `null` when the signal was not reported. VSS:
   /// `Vehicle.ADAS.ESC.RoadFriction.MostProbable`.
   final double? roadFriction;
+
+  /// The friction reading classified against the VSS contract.
+  ///
+  /// [RoadGrip.unknown] when the signal is absent OR the producer emitted a
+  /// value outside the declared 0–100 percent range. It is never coerced into
+  /// a safe-looking number.
+  RoadFrictionReading get friction => RoadFriction.classify(roadFriction);
 
   /// Traction Control engaged → active loss of traction.
   final bool? tcsEngaged;
@@ -48,10 +56,12 @@ class DrivingConditions {
   /// ABS engaged → braking on a low-friction surface.
   final bool? absEngaged;
 
-  /// Front wiper level (0–5); a precipitation proxy.
+  /// Front wiper level (uint8 actuator; VSS declares no maximum). A weak
+  /// precipitation proxy — VSS defines it as the requested interval/rain-sensor
+  /// sensitivity, with no significance in OFF/SLOW/MEDIUM/FAST modes.
   final int? wiperIntensity;
 
-  /// Rain-sensor intensity (0–100%).
+  /// Rain-sensor intensity, unit percent (0 = dry, 100 = covered).
   final int? rainIntensity;
 
   /// Ambient outside air temperature, °C.
@@ -70,8 +80,13 @@ class DrivingConditions {
     this.speedKmh,
   });
 
-  /// Friction threshold below which the road is treated as icy/very-low-grip.
-  static const double kLowFriction = 0.3;
+  /// Friction threshold below which the road is treated as icy/very-low-grip,
+  /// on the VSS **percent** scale (0–100). See [RoadFriction.icyBelowPercent].
+  static const double kLowFrictionPercent = RoadFriction.icyBelowPercent;
+
+  /// Friction at/above which the surface is treated as having normal grip,
+  /// on the VSS percent scale.
+  static const double kGoodFrictionPercent = RoadFriction.reducedBelowPercent;
 
   /// At/below this temperature, precipitation is treated as snow/ice.
   static const double kFreezingMarginC = 2.0;
@@ -82,11 +97,12 @@ class DrivingConditions {
   /// Rain-sensor % at/above which precipitation is considered present.
   static const int kRainPrecip = 50;
 
-  /// True when any signal indicates active loss of grip.
+  /// True when any signal *positively measures* a loss of grip.
+  ///
+  /// An absent friction reading contributes nothing here — absence is not
+  /// evidence of grip, and it is not evidence of ice either.
   bool get lowGrip =>
-      (roadFriction != null && roadFriction! < kLowFriction) ||
-      tcsEngaged == true ||
-      absEngaged == true;
+      friction.isIcy || tcsEngaged == true || absEngaged == true;
 
   /// True when the air temperature is at/below the freezing margin.
   /// `null` (unknown) is treated as "not known sub-zero".
@@ -99,7 +115,7 @@ class DrivingConditions {
 
   /// True when no decisive signal is available at all.
   bool get _noEvidence =>
-      roadFriction == null &&
+      !friction.isKnown &&
       tcsEngaged == null &&
       absEngaged == null &&
       wiperIntensity == null &&
@@ -116,14 +132,15 @@ class DrivingConditions {
       if (lowGrip) return SurfaceState.ice;
       if (precipitation) return SurfaceState.snow;
       // Cold but dry road with no grip loss — still dry (advisory warns of
-      // black-ice on bridges/shaded spots).
-      if (roadFriction != null && roadFriction! >= 0.6) return SurfaceState.dry;
+      // black-ice on bridges/shaded spots). Requires a POSITIVE good-grip
+      // measurement; an unknown reading stays unknown.
+      if (friction.grip == RoadGrip.grip) return SurfaceState.dry;
       return SurfaceState.unknown;
     }
 
     // Above freezing.
     if (precipitation || lowGrip) return SurfaceState.wet;
-    if (roadFriction != null && roadFriction! >= 0.6) return SurfaceState.dry;
+    if (friction.grip == RoadGrip.grip) return SurfaceState.dry;
     return SurfaceState.unknown;
   }
 
@@ -145,8 +162,12 @@ class DrivingConditions {
                 'ice on bridges and shaded sections.'
             : 'DRY — normal driving conditions.';
       case SurfaceState.unknown:
-        return 'CONDITIONS UNKNOWN — not enough signals to assess (no provider '
-            'publishing?). No condition is fabricated.';
+        return friction.isContractViolation
+            ? 'CONDITIONS UNKNOWN — the friction sensor reported '
+                '${friction.rawValue}, outside the VSS range (percent, 0–100). '
+                'The reading is not usable. No condition is assumed.'
+            : 'CONDITIONS UNKNOWN — not enough signals to assess (no provider '
+                'publishing?). No condition is fabricated.';
     }
   }
 
