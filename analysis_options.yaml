@@ -3,3 +3,9 @@ include: package:lints/recommended.yaml
 analyzer:
   exclude:
     - lib/src/generated/**
+    # example/flutter_conditions is a separate Flutter package with its own
+    # pubspec and analysis_options. Analysing it from this (pure Dart) root
+    # cannot resolve package:flutter, so it is analysed and tested by its own
+    # CI job instead. Excluding it here keeps `dart analyze` at the root honest
+    # rather than drowned in 280 unresolvable-import errors.
+    - example/flutter_conditions/**
