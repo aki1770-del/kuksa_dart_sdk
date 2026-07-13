@@ -15,8 +15,8 @@
 /// produces a confident, wrong "the road is fine":
 ///
 /// 1. **The scale is percent, not a 0.0-1.0 fraction.** An ESC on black ice
-///    reports something like `18.0`. Code written against a 0.0-1.0 fraction
-///    ("icy below 0.3") reads that as a clear road.
+///    reports something like `18.0`, which a 0.0-1.0 fraction reader will classify
+///    as a clear road (its "icy below 0.3" test never fires).
 /// 2. **Absence is absence.** A missing reading is [RoadGrip.unknown]. It is
 ///    never defaulted to full grip, and it never answers "not icy".
 library;

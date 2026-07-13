@@ -66,15 +66,51 @@ Map<String, SpecSignal> parseVspec(String yamlText, {required String prefix}) {
   return out;
 }
 
-/// The published locations that document the friction signal's range.
-/// Every one of these was wrong in kuksa_dart_sdk <= 0.2.3.
-const _documentedRangeLocations = <String>[
-  'lib/src/client/signal_path.dart',
-  'lib/kuksa_dart_sdk.dart',
-  'README.md',
-  'example/snow_safety_monitor.dart',
-  'example/flutter_conditions/lib/driving_conditions.dart',
-];
+/// Every publishable location that could document the friction signal —
+/// **DISCOVERED, never hand-listed.**
+///
+/// This was a hand-authored list of five paths until 0.2.5, and
+/// `lib/src/client/kuksa_client.dart` was not on it. The scanner below is
+/// strict, self-tested against the exact text 0.2.3 shipped, and grants the
+/// `?? 1.0` pattern no carve-out whatsoever — and it still let
+/// `if ((friction ?? 1.0) < 0.3 ...)` ship inside that file's API-reference
+/// example, in 0.2.4, on pub.dev, for an edge developer to copy.
+///
+/// A guard whose scope is written by the same hand as the code cannot falsify
+/// that code: the author omits the file for the same reason he wrote the bug.
+/// So the scope is now *derived from the filesystem* — every `.dart` we ship
+/// under `lib/` and `example/`, and every Markdown doc a reader lands on.
+/// Adding a new file cannot silently escape the gate; deleting the list cannot
+/// silently shrink it.
+List<String> _discoverDocumentedLocations() {
+  final out = <String>[];
+  for (final dir in ['lib', 'example']) {
+    final d = Directory(dir);
+    if (!d.existsSync()) continue;
+    out.addAll(d
+        .listSync(recursive: true)
+        .whereType<File>()
+        .map((f) => f.path)
+        // Skip generated protobuf and build artifacts: not ours to document.
+        .where((p) =>
+            (p.endsWith('.dart') || p.endsWith('.md')) &&
+            !p.contains('/generated/') &&
+            !p.contains('/.dart_tool/') &&
+            !p.contains('/build/')));
+  }
+  // README is a TEACHING surface and is scanned.
+  //
+  // CHANGELOG is deliberately NOT scanned: its job is to quote the old defect
+  // verbatim ("0.2.3 and earlier did `(friction ?? 1.0) < 0.3`") so a consumer
+  // can recognise it in his own code. The fabricated-clear scanner grants no
+  // phrasing carve-out — correctly — so scanning the changelog would flag our
+  // own recall note. A confession is not a lesson; teaching surfaces are.
+  if (File('README.md').existsSync()) out.add('README.md');
+  out.sort();
+  return out;
+}
+
+final _documentedRangeLocations = _discoverDocumentedLocations();
 
 /// Text patterns that assert the WRONG (0.0-1.0 fraction) contract.
 final _fractionScaleClaims = <RegExp>[

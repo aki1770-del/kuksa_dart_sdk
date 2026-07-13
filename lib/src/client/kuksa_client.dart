@@ -14,8 +14,10 @@
 /// await client.connect();
 ///
 /// await for (final update in client.subscribe(kSnowSafetySignals)) {
-///   final friction = update[kRoadFrictionMostProbable]?.floatValue;
-///   if (friction != null && friction < 0.3) activateSnowRoutingMode();
+///   // Classify — never compare the raw value yourself. RoadFriction is on the
+///   // VSS percent scale (0-100), and absence must stay absent.
+///   final road = RoadFriction.classifyDatapoint(update[kRoadFrictionMostProbable]);
+///   if (road.isIcy) activateSnowRoutingMode();
 /// }
 /// ```
 library;
@@ -129,13 +131,26 @@ class KuksaClient {
   /// Example — snow safety monitoring:
   /// ```dart
   /// await for (final update in client.subscribe(kSnowSafetySignals)) {
-  ///   final friction = update[kRoadFrictionMostProbable]?.floatValue;
+  ///   final road = RoadFriction.classifyDatapoint(update[kRoadFrictionMostProbable]);
   ///   final tcs = update[kTcsIsEngaged]?.boolValue;
-  ///   if ((friction ?? 1.0) < 0.3 || (tcs ?? false)) {
+  ///
+  ///   if (road.isIcy || (tcs ?? false)) {
   ///     navigationBloc.add(SnowConditionsDetected());
+  ///   } else if (road.grip == RoadGrip.unknown) {
+  ///     // The road was NOT measured. Absence is not "no ice" — show the driver
+  ///     // that the surface is unknown; do not paint an all-clear.
+  ///     navigationBloc.add(RoadSurfaceUnknown());
   ///   }
   /// }
   /// ```
+  ///
+  /// Do **not** unwrap the friction value yourself. `Vehicle.ADAS.ESC.RoadFriction`
+  /// is a **percent** (0-100) on the VSS scale: a threshold written for a
+  /// 0.0-1.0 fraction will classify a genuine 18 % black-ice measurement
+  /// as a clear road. And defaulting an absent reading to full grip fabricates a
+  /// measurement out of a broken sensor — absence is [RoadGrip.unknown], which is
+  /// neither safe nor unsafe; surface it to the driver.
+  /// [RoadFriction.classifyDatapoint] exists to make both mistakes unavailable.
   Stream<Map<String, Datapoint>> subscribe(
     List<String> paths, {
     /// Server-side buffer size per signal (0 = keep only latest value).

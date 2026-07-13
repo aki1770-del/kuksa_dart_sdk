@@ -1,3 +1,52 @@
+## 0.2.5
+
+**0.2.4 fixed the friction contract but left the defect alive in the two code
+examples on this package's own API-reference page — the examples an integrator
+copies. If you copied either one, please re-read it.**
+
+### What was still wrong
+
+`0.2.4` corrected the scale (percent, 0..100) and added `RoadFriction` so that an
+absent reading stays `RoadGrip.unknown`. But the `KuksaClient` library example and
+the `subscribe()` example still unwrapped the raw datapoint by hand, still compared
+it against a `0.3` fraction threshold, and — in the `subscribe()` case — still
+substituted a full-grip default for a missing sensor. Both are rendered on pub.dev.
+
+Concretely, an ESC on black ice reports about `18.0` (percent). Under the copied
+example's threshold that is **not** below `0.3`, so the ice never fires; and when
+the sensor is silent, the default asserted a road that nobody had measured.
+
+### What changed
+
+- Both examples now call `RoadFriction.classifyDatapoint(...)` and branch on
+  `isIcy` / `RoadGrip.unknown`. They no longer touch the raw value.
+- The `subscribe()` example now shows the third state explicitly: when the road was
+  **not measured**, tell the driver it is unknown — do not paint an all-clear.
+- `example/flutter_conditions` states the unit (percent) where it renders friction.
+
+### The guard that should have caught this, and did not
+
+This package already ships a conformance scanner (`test/vss_conformance_test.dart`)
+that flags exactly these two patterns, tests itself against the text `0.2.3`
+shipped, and grants no phrasing carve-out. It passed for `0.2.4` — because its list
+of files to scan was **hand-written, and did not include `kuksa_client.dart`.**
+
+A guard whose scope is authored by the same hand as the code cannot falsify that
+code: the author omits the file for the same reason he wrote the bug. The scanner
+now **discovers** its scope from the filesystem — every `.dart` under `lib/` and
+`example/`, plus the README. It was re-run against `0.2.4` before this release and
+**failed**, naming `lib/src/client/kuksa_client.dart:134`. A new file cannot escape
+it by not being remembered.
+
+### What you must change
+
+Nothing in your dependency constraint: `0.2.5` is source-compatible with `0.2.4`
+and is a documentation and test change only — no API, no behaviour.
+
+If you copied either example out of `0.2.4` (or earlier), replace your hand-rolled
+friction check with `RoadFriction.classifyDatapoint(...)` and handle
+`RoadGrip.unknown` as its own state.
+
 ## 0.2.4
 
 **Corrects a documentation defect that could cause an application to treat an

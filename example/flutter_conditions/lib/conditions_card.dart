@@ -92,6 +92,9 @@ class DrivingConditionsCard extends StatelessWidget {
   List<String> get _received {
     final c = conditions;
     final out = <String>[];
+    // RoadFriction is a VSS percent (0..100) — never a 0.0-1.0 fraction — so it
+    // is rendered with a % sign. A null reading is simply not listed: absence is
+    // shown as absence, never as a friction number.
     if (c.roadFriction != null) {
       out.add('Road friction ${c.roadFriction!.toStringAsFixed(0)}%');
     }
