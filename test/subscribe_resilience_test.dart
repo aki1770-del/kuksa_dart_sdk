@@ -52,7 +52,8 @@ void main() {
   group('a missing signal never blinds the rest', () {
     test('today: one absent path fails the entire subscription', () async {
       if (!brokerUp) return;
-      expect(await firstEvent(client.subscribe([present])), startsWith('data:'));
+      expect(
+          await firstEvent(client.subscribe([present])), startsWith('data:'));
       expect(await firstEvent(client.subscribe([present, absent])),
           contains('NOT_FOUND'));
     }, skip: null);

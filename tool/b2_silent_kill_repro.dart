@@ -29,12 +29,14 @@ Future<String> attempt(
       .subscribe(paths,
           skipUnknownPaths: skipUnknownPaths, onUnknownPaths: onUnknownPaths)
       .listen(
-        (u) => done.isCompleted ? null : done.complete('DATA ${u.keys.toList()}'),
+        (u) =>
+            done.isCompleted ? null : done.complete('DATA ${u.keys.toList()}'),
         onError: (e) => done.isCompleted
             ? null
             : done.complete('ERROR ${e.runtimeType}: $e'),
-        onDone: () =>
-            done.isCompleted ? null : done.complete('CLOSED SILENTLY (no data)'),
+        onDone: () => done.isCompleted
+            ? null
+            : done.complete('CLOSED SILENTLY (no data)'),
       );
   final r = await done.future.timeout(const Duration(seconds: 6),
       onTimeout: () => 'ALIVE (no emission in 6s, stream not errored)');
