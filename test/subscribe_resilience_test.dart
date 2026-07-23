@@ -18,6 +18,7 @@ import 'package:test/test.dart';
 const present = 'Vehicle.Speed';
 const knownButUnwritten = 'Vehicle.Exterior.Humidity';
 const absent = 'Vehicle.Exterior.NoSuchLeafForResilienceTest';
+const noBroker = 'no databroker reachable on localhost:55555';
 
 Future<String> firstEvent(Stream<Map<String, Datapoint>> stream) {
   final done = Completer<String>();
@@ -51,7 +52,7 @@ void main() {
 
   group('a missing signal never blinds the rest', () {
     test('today: one absent path fails the entire subscription', () async {
-      if (!brokerUp) return;
+      if (!brokerUp) return markTestSkipped(noBroker);
       expect(
           await firstEvent(client.subscribe([present])), startsWith('data:'));
       expect(await firstEvent(client.subscribe([present, absent])),
@@ -59,7 +60,7 @@ void main() {
     }, skip: null);
 
     test('skipUnknownPaths: the known signals still stream', () async {
-      if (!brokerUp) return;
+      if (!brokerUp) return markTestSkipped(noBroker);
       var reported = <String>[];
       final got = await firstEvent(client.subscribe(
         [present, knownButUnwritten, absent],
@@ -72,13 +73,13 @@ void main() {
     });
 
     test('a known-but-never-written signal is NOT treated as absent', () async {
-      if (!brokerUp) return;
+      if (!brokerUp) return markTestSkipped(noBroker);
       expect(await client.resolveKnownPaths([knownButUnwritten]),
           [knownButUnwritten]);
     });
 
     test('all-absent errors loudly rather than closing empty', () async {
-      if (!brokerUp) return;
+      if (!brokerUp) return markTestSkipped(noBroker);
       expect(
         await firstEvent(client.subscribe([absent], skipUnknownPaths: true)),
         contains('UnknownSignalPathsException'),
