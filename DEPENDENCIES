@@ -17,7 +17,7 @@
 # IP note: Eclipse Dash / ClearlyDefined have no native Dart/pub type, so these
 #          coordinates do not auto-resolve; the license column is this project's
 #          reading of the declared license — NOT an Eclipse IP approval.
-# Summary: 21 deps; 18x BSD-3-Clause; 3x Apache-2.0.
+# Summary: 24 deps; 21x BSD-3-Clause; 3x Apache-2.0.
 #
 # format: pub/pub.dev/-/<name>/<version>, <SPDX-license>, <status>, <source>
 
@@ -26,18 +26,21 @@ pub/pub.dev/-/clock/1.1.2, Apache-2.0, needs-review, pub.dev
 pub/pub.dev/-/collection/1.19.1, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/crypto/3.0.7, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/fixnum/1.1.1, BSD-3-Clause, needs-review, pub.dev
-pub/pub.dev/-/google_cloud/0.5.0, Apache-2.0, needs-review, pub.dev
+pub/pub.dev/-/google_cloud/0.4.0, Apache-2.0, needs-review, pub.dev
 pub/pub.dev/-/google_identity_services_web/0.3.3+1, BSD-3-Clause, needs-review, pub.dev
-pub/pub.dev/-/googleapis_auth/2.3.3, BSD-3-Clause, needs-review, pub.dev
+pub/pub.dev/-/googleapis_auth/2.3.0, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/grpc/5.1.0, Apache-2.0, needs-review, pub.dev
 pub/pub.dev/-/http/1.6.0, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/http2/2.3.1, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/http_parser/4.1.2, BSD-3-Clause, needs-review, pub.dev
-pub/pub.dev/-/meta/1.19.0, BSD-3-Clause, needs-review, pub.dev
+pub/pub.dev/-/io/1.0.5, BSD-3-Clause, needs-review, pub.dev
+pub/pub.dev/-/meta/1.18.2, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/path/1.9.1, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/protobuf/6.0.0, BSD-3-Clause, needs-review, pub.dev
+pub/pub.dev/-/shelf/1.4.2, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/source_span/1.10.2, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/stack_trace/1.12.1, BSD-3-Clause, needs-review, pub.dev
+pub/pub.dev/-/stream_channel/2.1.4, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/string_scanner/1.4.1, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/term_glyph/1.2.2, BSD-3-Clause, needs-review, pub.dev
 pub/pub.dev/-/typed_data/1.4.0, BSD-3-Clause, needs-review, pub.dev

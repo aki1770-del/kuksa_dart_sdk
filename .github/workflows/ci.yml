@@ -15,8 +15,44 @@ on:
 jobs:
   analyze-and-test:
     runs-on: ubuntu-latest
+
+    # A REAL databroker, because four of this suite's tests cannot be proven
+    # without one and they SKIP when it is absent.
+    #
+    # Measured 2026-08-24 on a host with no broker:
+    #     +2 ~4    "All tests passed!"    exit 0
+    # Two passed, FOUR SKIPPED — and the four skipped are the four that prove
+    # `skipUnknownPaths`. The badge was green and certified nothing about the
+    # behaviour the feature exists to provide. A suite that skips into green is
+    # indistinguishable, at the badge, from a suite that ran.
+    #
+    # The image needs no arguments: verified 2026-08-24, its entrypoint
+    # /app/databroker defaults to `Listening on 0.0.0.0:55555`, TLS off, auth
+    # off. That is correct for a throwaway CI broker and for nothing else.
+    services:
+      databroker:
+        image: ghcr.io/eclipse-kuksa/kuksa-databroker:latest
+        ports:
+          - 55555:55555
+
     steps:
       - uses: actions/checkout@v4
+
+      # FAIL-CLOSED, and this step is the point of the job change. Without it a
+      # broker that failed to start would put us straight back to a green badge
+      # over four skipped tests — the exact defect this service block exists to
+      # remove, wearing the fix as a disguise.
+      - name: The databroker is actually reachable (skips are not a pass)
+        run: |
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/55555) 2>/dev/null; then
+              echo "databroker reachable on 55555 after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::databroker never became reachable on 55555 —" \
+               "the resilience tests would SKIP and the suite would report green."
+          exit 1
 
       - uses: dart-lang/setup-dart@v1
         with:
@@ -38,6 +74,36 @@ jobs:
       # human edited the table by hand, or the spec moved, this fails.
       - name: README signal table is in sync with the vendored spec
         run: dart run tool/gen_signal_table.dart --check
+
+  dependencies-manifest-drift:
+    # DEPENDENCIES is the runtime third-party manifest the Eclipse Dash IP
+    # review reads. It is GENERATED (tool/gen_dependencies.sh) and it drifts
+    # without anyone editing this repository, because a TRANSITIVE dependency
+    # can appear when a direct dependency bumps.
+    #
+    # Measured 2026-08-25: the committed file recorded 21 runtime dependencies
+    # while the real closure was 24 — `io`, `shelf` and `stream_channel` were
+    # absent. pubspec.yaml had not been touched since 2026-07-14, so no human
+    # action could have prompted a regeneration. An IP review run against that
+    # file reviews the wrong set.
+    #
+    # This is the sibling of vss-upstream-drift below: same discipline, aimed at
+    # the licence surface instead of the signal spec.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: DEPENDENCIES is in sync with the real runtime closure
+        run: |
+          tool/gen_dependencies.sh > /tmp/DEPENDENCIES.regenerated
+          if ! diff -u DEPENDENCIES /tmp/DEPENDENCIES.regenerated; then
+            echo "::error::DEPENDENCIES is stale. Regenerate with" \
+                 "tool/gen_dependencies.sh > DEPENDENCIES and commit it."
+            exit 1
+          fi
+          echo "DEPENDENCIES matches the regenerated runtime closure."
 
   vss-upstream-drift:
     # Re-fetches the COVESA spec and diffs it against spec/. Fails loudly if
