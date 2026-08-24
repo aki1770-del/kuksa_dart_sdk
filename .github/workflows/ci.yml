@@ -39,6 +39,25 @@ jobs:
       - name: README signal table is in sync with the vendored spec
         run: dart run tool/gen_signal_table.dart --check
 
+  proto-contract-drift:
+    # The WIRE-CONTRACT sibling of vss-upstream-drift below. That job guards the
+    # DATA MODEL (COVESA VSS); this one guards the gRPC contract our checked-in
+    # stubs in lib/src/generated/ were produced from.
+    #
+    # It exists because on 2026-08-24 eclipse-kuksa/kuksa-databroker moved its
+    # protos OUT of the server repo into the standalone, independently versioned
+    # eclipse-kuksa/kuksa-proto ("Use kuksa-proto as a git submodule"). The
+    # contract can now move without the server moving, and our generated files
+    # record no ref at all — they say only "Generated from kuksa/val/v2/val.proto".
+    #
+    # A stub/contract mismatch is not a compile error. It is a deserialization
+    # failure at runtime, in a vehicle, on a signal a driver's warning depends on.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diff vendored protos against eclipse-kuksa/kuksa-proto
+        run: bash tool/proto_sync.sh
+
   vss-upstream-drift:
     # Re-fetches the COVESA spec and diffs it against spec/. Fails loudly if
     # upstream changed a signal's datatype, unit, min or max — the situation in
