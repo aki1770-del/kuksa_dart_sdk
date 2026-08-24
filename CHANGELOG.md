@@ -1,3 +1,35 @@
+## Unreleased
+
+**One signal a vehicle does not have could blind a consumer to every signal it
+does have.** `kuksa.val.v2` subscribes to a path list as a single all-or-nothing
+request: if the databroker does not know one of them it answers `NOT_FOUND` and
+no signal is ever delivered. Measured against databroker 0.7.0 (VSS 6.0):
+`[Vehicle.Speed]` streams; `[Vehicle.Speed, <absent path>]` dies.
+
+Vehicles differ in which VSS leaves they expose, so a consumer asking for six
+safety signals loses all six on the one leaf that vehicle lacks — and a caller
+whose `onError` only logs goes quietly blind for the rest of the drive.
+
+### What changed
+
+- `KuksaClient.subscribe` accepts `skipUnknownPaths: true`, which subscribes to
+  the signals this databroker actually has. Default is `false`, so existing
+  behaviour is unchanged.
+- Absent paths are never dropped in silence: they are reported to
+  `onUnknownPaths`, and if *none* of the requested paths is known the stream
+  errors with the new `UnknownSignalPathsException` rather than completing
+  empty. A consumer that receives nothing and no error cannot tell "this road is
+  safe" from "this vehicle told us nothing".
+- `KuksaClient.resolveKnownPaths` exposes the probe. A signal the databroker
+  knows but no provider has ever written is **not** absent and is kept. Only
+  `NOT_FOUND` marks a path unknown — `UNAVAILABLE`, `UNAUTHENTICATED` and the
+  rest are rethrown, because an unreachable broker has not told us a signal is
+  missing, and treating it as missing would drop signals the vehicle has.
+
+Proven fail-then-pass against a real databroker (not a mock — the trap lives in
+the broker's all-or-nothing `Subscribe`): `test/subscribe_resilience_test.dart`,
+which skips when no broker is reachable on `localhost:55555`.
+
 ## 0.2.5
 
 **0.2.4 fixed the friction contract but left the defect alive in the two code

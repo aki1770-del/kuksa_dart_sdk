@@ -151,12 +151,48 @@ class KuksaClient {
   /// measurement out of a broken sensor — absence is [RoadGrip.unknown], which is
   /// neither safe nor unsafe; surface it to the driver.
   /// [RoadFriction.classifyDatapoint] exists to make both mistakes unavailable.
+  /// ## One absent signal ends the whole subscription
+  ///
+  /// `kuksa.val.v2` subscribes to [paths] as a single all-or-nothing request.
+  /// If the databroker does not know **one** of them it answers `NOT_FOUND`
+  /// and **no** signal is ever delivered — measured against databroker 0.7.0:
+  /// `[Vehicle.Speed]` streams, `[Vehicle.Speed, <absent>]` dies.
+  ///
+  /// Vehicles differ in which VSS leaves they expose, so a consumer that asks
+  /// for six safety signals loses all six on the one the vehicle lacks. Set
+  /// [skipUnknownPaths] to subscribe to the signals this databroker actually
+  /// has and be *told* which ones it lacks, instead of going blind.
   Stream<Map<String, Datapoint>> subscribe(
     List<String> paths, {
     /// Server-side buffer size per signal (0 = keep only latest value).
     /// Increase for high-frequency signals (e.g., wheel speed at 50 Hz).
     int bufferSize = 0,
+
+    /// Subscribe to the paths this databroker knows instead of failing the
+    /// whole stream on the ones it does not (see [resolveKnownPaths]).
+    ///
+    /// Absent paths are never silently dropped: they are reported to
+    /// [onUnknownPaths], and if *none* of [paths] is known the stream errors
+    /// with [UnknownSignalPathsException] rather than completing empty.
+    bool skipUnknownPaths = false,
+
+    /// Called once, before the stream opens, with the subset of [paths] this
+    /// databroker does not know. Only invoked when it is non-empty.
+    ///
+    /// Treat those signals as unmeasured — not as safe. A missing road-friction
+    /// leaf is [RoadGrip.unknown], never a clear road.
+    void Function(List<String> unknownPaths)? onUnknownPaths,
   }) {
+    if (!skipUnknownPaths) {
+      return _subscribeExact(paths, bufferSize);
+    }
+    return _subscribeKnown(paths, bufferSize, onUnknownPaths);
+  }
+
+  Stream<Map<String, Datapoint>> _subscribeExact(
+    List<String> paths,
+    int bufferSize,
+  ) {
     final request = pb.SubscribeRequest(
       signalPaths: paths,
       bufferSize: bufferSize,
@@ -166,6 +202,43 @@ class KuksaClient {
           for (final entry in response.entries.entries)
             entry.key: Datapoint(raw: entry.value, path: entry.key),
         });
+  }
+
+  Stream<Map<String, Datapoint>> _subscribeKnown(
+    List<String> paths,
+    int bufferSize,
+    void Function(List<String>)? onUnknownPaths,
+  ) async* {
+    final known = await resolveKnownPaths(paths);
+    final unknown = paths.where((p) => !known.contains(p)).toList();
+
+    if (unknown.isNotEmpty) onUnknownPaths?.call(unknown);
+    if (known.isEmpty) throw UnknownSignalPathsException(unknown);
+
+    yield* _subscribeExact(known, bufferSize);
+  }
+
+  /// Returns the subset of [paths] this databroker knows, in the given order.
+  ///
+  /// A path is *known* when the databroker holds metadata for it — whether or
+  /// not a provider has ever written a value. Both are distinguished from an
+  /// absent path, which is the only kind [subscribe] may drop.
+  ///
+  /// Only `NOT_FOUND` marks a path unknown. Any other gRPC failure
+  /// (`UNAVAILABLE`, `UNAUTHENTICATED`, …) is rethrown: a databroker that is
+  /// unreachable or refusing us has not told us the signal is absent, and
+  /// treating it as absent would drop signals the vehicle really has.
+  Future<List<String>> resolveKnownPaths(List<String> paths) async {
+    final known = <String>[];
+    for (final path in paths) {
+      try {
+        final metadata = await listMetadata(filter: path);
+        if (metadata.metadata.any((m) => m.path == path)) known.add(path);
+      } on GrpcError catch (e) {
+        if (e.code != StatusCode.notFound) rethrow;
+      }
+    }
+    return known;
   }
 
   /// Publishes a single value for [path] to the databroker.
@@ -248,4 +321,22 @@ class KuksaClient {
     _channel = null;
     _stub = null;
   }
+}
+
+/// Thrown by [KuksaClient.subscribe] with `skipUnknownPaths: true` when the
+/// databroker knows **none** of the requested paths.
+///
+/// The subscription fails loudly rather than handing back an empty stream: a
+/// consumer that receives nothing and no error cannot tell "this vehicle is
+/// safe" from "this vehicle told us nothing".
+class UnknownSignalPathsException implements Exception {
+  /// The requested paths, none of which the databroker knows.
+  final List<String> paths;
+
+  const UnknownSignalPathsException(this.paths);
+
+  @override
+  String toString() =>
+      'UnknownSignalPathsException: the databroker knows none of the '
+      'requested signals: ${paths.join(', ')}';
 }
