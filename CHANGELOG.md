@@ -1,4 +1,73 @@
-## Unreleased
+## 0.2.6
+
+### ⚠ If you are upgrading from 0.2.3 or earlier, read this first
+
+**Versions 0.1.0 and 0.2.0 through 0.2.3 documented
+`Vehicle.ADAS.ESC.RoadFriction.MostProbable` as a float in the range `0.0–1.0`,
+with the rule "below 0.3 = icy". That is not the signal's contract, and code
+written to it cannot detect ice.**
+
+The VSS unit is **percent, range 0–100** — *0 = no friction, 100 = maximum
+friction*. **A real ESC on black ice reports around `18.0`.** A test written
+from our old documentation evaluates `18.0 < 0.3`, which is **false**, and
+therefore concludes the road is *not* icy. The same examples also wrote
+`friction ?? 1.0`, which substitutes **full grip** when the signal is absent —
+turning a missing sensor into a positive assertion that the road is fine.
+
+**If you copied either line, your ice detection does not fire.** The correct
+threshold is `< 30` percent, and better still is
+`RoadFriction.classifyDatapoint(...)`, which enforces the spec range and returns
+`RoadGrip.unknown` for an absent or out-of-spec reading instead of defaulting to
+a safe-looking value.
+
+The contract was corrected in `0.2.4` (and backported to `0.1.1` for consumers
+pinned to `^0.1.0`); `0.2.5` fixed the last two stale examples on the
+API-reference page.
+
+**We cannot retract the affected versions.** pub.dev permits retraction only
+within seven days of publication, and every one of those windows closed before
+we acted — the earliest 128 days ago. Their pages remain online and still show
+the wrong rule. This entry is the only notice we can give you, which is why it
+is at the top of this one.
+
+### One signal a vehicle does not have no longer blinds a consumer to every signal it does have
+
+`kuksa.val.v2` subscribes to a path list as a single all-or-nothing request: if
+the databroker does not know one of them it answers `NOT_FOUND` and no signal is
+ever delivered. Measured against databroker 0.7.0 (VSS 6.0): `[Vehicle.Speed]`
+streams; `[Vehicle.Speed, <absent path>]` dies.
+
+Vehicles differ in which VSS leaves they expose, so a consumer asking for six
+safety signals loses all six on the one leaf that vehicle lacks — and a caller
+whose `onError` only logs goes quietly blind for the rest of the drive.
+
+- `KuksaClient.subscribe` accepts `skipUnknownPaths: true`, which subscribes to
+  the signals this databroker actually has. Default is `false`, so existing
+  behaviour is unchanged.
+- Absent paths are never dropped in silence: they are reported to
+  `onUnknownPaths`, and if *none* of the requested paths is known the stream
+  errors with the new `UnknownSignalPathsException` rather than completing
+  empty. A consumer that receives nothing and no error cannot tell "this road is
+  safe" from "this vehicle told us nothing".
+- `KuksaClient.resolveKnownPaths` exposes the probe. A signal the databroker
+  knows but no provider has ever written is **not** absent and is kept. Only
+  `NOT_FOUND` marks a path unknown — `UNAVAILABLE`, `UNAUTHENTICATED` and the
+  rest are rethrown, because an unreachable broker has not told us a signal is
+  missing, and treating it as missing would drop signals the vehicle has.
+
+Proven fail-then-pass against a real databroker (not a mock — the trap lives in
+the broker's all-or-nothing `Subscribe`): `test/subscribe_resilience_test.dart`,
+which skips when no broker is reachable on `localhost:55555`. Verified before
+this release with a live broker: 44 tests, 0 skipped.
+
+### Also in this release
+
+- `spec/Exterior.vspec` re-synced with COVESA upstream, taking in
+  `RoadSurfaceTemperature`. No signal's unit, range or datatype changed, so no
+  documented contract moved and no classifier threshold was revisited.
+- `SECURITY.md` added. This package is listed on the Eclipse KUKSA organisation
+  page as a third-party component, which means the KUKSA team does not monitor
+  it for vulnerabilities. We do, and there is now an address to write to.
 
 **One signal a vehicle does not have could blind a consumer to every signal it
 does have.** `kuksa.val.v2` subscribes to a path list as a single all-or-nothing
