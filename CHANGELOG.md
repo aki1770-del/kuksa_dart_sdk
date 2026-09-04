@@ -1,4 +1,4 @@
-## Unreleased
+## 0.2.8
 
 ### The signal a vehicle lacks is now named. Our issue said it was silent; the silence was ours
 
@@ -61,6 +61,31 @@ message attached, and no data delivered first. `await for` rethrows it; `.first`
 rethrows it. A wildcard passed as a path earns a pointer to `expand()`. If the
 follow-up lookup itself fails, the error says the culprit could not be
 determined; it never says "nothing missing".
+
+**This is the one behaviour change in 0.2.8, and it is on the error path.**
+0.2.7 let the broker's `GrpcError` with `code == StatusCode.notFound` through
+raw from `subscribe` (as a stream error), `getValues` and `getValue`. 0.2.8
+throws `UnknownSignalPathsException` there instead. It implements `Exception`,
+not `GrpcError`, and has no `.code`. A handler written as
+`on GrpcError catch (e) { if (e.code == StatusCode.notFound) … }`, or a stream
+`onError` testing `e is GrpcError && e.code == StatusCode.notFound`, **stops
+matching** and must test `e is UnknownSignalPathsException` — the unknown
+paths are on `e.paths`, the broker's original text on `e.brokerMessage`. Every
+other status (`UNAVAILABLE`, `UNAUTHENTICATED`, `PERMISSION_DENIED`,
+`INVALID_ARGUMENT`) still arrives as `GrpcError`, unchanged, and
+`resolveDataType` already threw `UnknownSignalPathsException` in 0.2.7. The
+failure now also costs one metadata round-trip per requested path, on the
+error path only, to resolve the names. Shipped inside the `^0.2.x` range: no
+consumer we could find filters on that code, and a `NOT_FOUND` nobody could
+act on was the defect — if your code does filter on it, this is the paragraph
+to read.
+
+**Announced for 0.3.0.** `subscribe(skipUnknownPaths: true)` without
+`onUnknownPaths` still drops the unknown paths silently — the one silence this
+release leaves in place, because making the callback required is a breaking
+change that the `^0.2.x` range would never deliver. **0.3.0 will require
+`onUnknownPaths` whenever `skipUnknownPaths` is `true`.** Pass it now and 0.3.0
+changes nothing for you.
 
 `listMetadata`'s `filter` parameter is documented for what it is: the request's
 `root`. The wire message's own `filter` field is ignored by databroker 0.7.1

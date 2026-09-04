@@ -2,7 +2,7 @@ name: kuksa_dart_sdk
 description: >
   Dart/Flutter client SDK for the Eclipse KUKSA databroker (v2): typed access to
   Vehicle Signal Specification (VSS) signals for embedded Linux IVI navigation.
-version: 0.2.7
+version: 0.2.8
 homepage: https://github.com/aki1770-del/kuksa_dart_sdk
 repository: https://github.com/aki1770-del/kuksa_dart_sdk
 issue_tracker: https://github.com/aki1770-del/kuksa_dart_sdk/issues
