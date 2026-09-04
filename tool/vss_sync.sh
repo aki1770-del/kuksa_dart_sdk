@@ -28,6 +28,11 @@ FILES=(
   "Exterior.vspec:Vehicle/Exterior.vspec"
   "Chassis.vspec:Chassis/Chassis.vspec"
   "Wheel.vspec:Chassis/Wheel.vspec"
+  # Safety branch, new in VSS 6.1. Holds VisibilityImpairment and
+  # RoadIcingState -- two of the five winter signals this unit merged.
+  # Absent from this list until 2026-09-04, so upstream changes to
+  # signals we contributed could not fire the watcher at all.
+  "Safety.vspec:Safety/Safety.vspec"
 )
 
 UPDATE=0
