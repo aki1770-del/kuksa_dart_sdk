@@ -70,6 +70,13 @@ class DrivingConditions {
   /// Vehicle speed, km/h.
   final double? speedKmh;
 
+  /// Signals this vehicle does not report at all — absent from the
+  /// databroker's VSS, as opposed to present but not yet written. Listed by
+  /// path so the card can say *not on this vehicle* instead of leaving the
+  /// driver to infer it from a chip that never appears. Empty when every
+  /// requested signal exists.
+  final List<String> notOnThisVehicle;
+
   const DrivingConditions({
     this.roadFriction,
     this.tcsEngaged,
@@ -78,6 +85,7 @@ class DrivingConditions {
     this.rainIntensity,
     this.airTempC,
     this.speedKmh,
+    this.notOnThisVehicle = const [],
   });
 
   /// Friction threshold below which the road is treated as icy/very-low-grip,
@@ -176,8 +184,12 @@ class DrivingConditions {
   /// Uses [Datapoint.value] (the untyped accessor) and coerces numerically, so
   /// it is robust to a databroker modelling, e.g., wiper intensity as `int32`
   /// vs `uint8`. Signals absent from [snapshot] (or carrying no value) stay
-  /// `null`.
-  factory DrivingConditions.fromSignals(Map<String, Datapoint> snapshot) {
+  /// `null`. [notOnThisVehicle] names the signals the databroker does not
+  /// know at all, from `KuksaClient.missingSignals`.
+  factory DrivingConditions.fromSignals(
+    Map<String, Datapoint> snapshot, {
+    List<String> notOnThisVehicle = const [],
+  }) {
     return DrivingConditions(
       roadFriction: _asDouble(snapshot[kRoadFrictionMostProbable]),
       tcsEngaged: _asBool(snapshot[kTcsIsEngaged]),
@@ -186,6 +198,7 @@ class DrivingConditions {
       rainIntensity: _asInt(snapshot[kRaindetectionIntensity]),
       airTempC: _asDouble(snapshot[kAirTemperature]),
       speedKmh: _asDouble(snapshot[kVehicleSpeed]),
+      notOnThisVehicle: notOnThisVehicle,
     );
   }
 

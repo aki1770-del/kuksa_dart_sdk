@@ -1,3 +1,76 @@
+## Unreleased
+
+### The signal a vehicle lacks is now named. Our issue said it was silent; the silence was ours
+
+We filed [eclipse-kuksa/kuksa-databroker#230](https://github.com/eclipse-kuksa/kuksa-databroker/issues/230):
+one unknown VSS path in a multi-path `Subscribe` fails the whole request with
+`NOT_FOUND`, so a road-condition subscription of six safety signals dies on the
+one leaf a deployment lacks — *"with no error surfaced to the user."* The
+maintainer's answer, in short: all-or-nothing is a design choice; the broker is
+meant to be deterministic and non-surprising, and *"useful magic"* belongs in
+the client APIs; and *"I would expect the GRPC API to give you an error when not
+all subscriptions can be fulfilled."*
+
+He is right. Measured against databroker 0.7.1: the broker answered `NOT_FOUND`,
+this package passed it through unchanged as a `GrpcError`, and the silence was
+downstream of both — in our own consuming app, whose stream layer turned the
+error into an "unavailable" update carrying the message, and whose UI read the
+flag, discarded the message, and showed its simulated default. The sentence in
+our issue was true about what the driver saw and wrong about who was
+responsible for it.
+
+What this package got wrong on its own:
+
+- **The error was untyped and named no path.** The broker's message is the bare
+  `Path not found`, even with three paths in the request; a consumer had to
+  guess which of six leaves the vehicle lacked.
+- **`getValues` documented that an unknown signal** *"is represented as a
+  Datapoint with hasValue == false."* It never was: the call failed with
+  `NOT_FOUND`, exactly like `Subscribe`.
+- **`subscribe` documented a broadcast stream.** It is single-subscription.
+
+### Decide before you subscribe
+
+The shape follows the redesigned Python client's `has_signal(s)` /
+`missing_signals` / `expand`, which the maintainer pointed to, so a pattern or a
+check means one thing in both SDKs:
+
+- **`missingSignals(paths)`** returns the subset this databroker does not know,
+  in request order; **`hasSignals(paths)`** and **`hasSignal(path)`** are the
+  boolean forms. Only `NOT_FOUND` counts as missing — an unreachable broker
+  throws, because "absent" would tell an app to run degraded when the bus is
+  down. An app can now choose to work, to work degraded with the absent readings
+  shown as unmeasured, or to refuse, *before* the subscription fails.
+- **`expand(pattern, {entryType})`** turns a wildcard pattern or a branch into
+  the concrete leaf paths this databroker has, sorted. `kuksa.val.v2` accepts
+  exact leaves only — `Vehicle.ADAS.*`, `Vehicle.**` and the branch
+  `Vehicle.ADAS` all answer `NOT_FOUND` in `Subscribe`/`GetValues` (measured) —
+  so the match runs client-side over one `ListMetadata` call bounded by the
+  pattern's literal prefix, and never relies on the broker's wildcard support,
+  which its own proto says *"may be removed in a future release."* `*` is one
+  segment, `**` any number; a pattern with no wildcard is a branch.
+  `SignalPattern` carries the rule; `VssEntryType` filters by sensor, actuator
+  or attribute without a protobuf import.
+
+### When you did not check, the error names the leaf
+
+`subscribe`, `getValues` and `getValue` now fail with
+`UnknownSignalPathsException` **naming the unknown paths** — resolved from
+metadata here, since the broker does not — with `requested` and the broker's own
+message attached, and no data delivered first. `await for` rethrows it; `.first`
+rethrows it. A wildcard passed as a path earns a pointer to `expand()`. If the
+follow-up lookup itself fails, the error says the culprit could not be
+determined; it never says "nothing missing".
+
+`listMetadata`'s `filter` parameter is documented for what it is: the request's
+`root`. The wire message's own `filter` field is ignored by databroker 0.7.1
+(measured: `root: Vehicle, filter: Vehicle.Speed` returns all 1 263 entries).
+
+The `flutter_conditions` example now asks `missingSignals` first, subscribes to
+what the vehicle has, lists the rest under *Not on this vehicle*, and names the
+signals when there are none to subscribe to instead of showing "Signal lost".
+`snow_safety_monitor.dart` does the same in the console.
+
 ## 0.2.7
 
 ### 31 % of the specification could not be written through this package

@@ -13,6 +13,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:kuksa_dart_sdk/kuksa_dart_sdk.dart';
 
 import 'conditions_card.dart';
 import 'conditions_source.dart';
@@ -33,6 +34,7 @@ class _ConditionsMonitorState extends State<ConditionsMonitor> {
   // Start UNKNOWN: with no signal yet we must not imply a condition.
   DrivingConditions _conditions = const DrivingConditions();
   ConditionsConnection _connection = ConditionsConnection.connecting;
+  String? _errorDetail;
 
   @override
   void initState() {
@@ -47,6 +49,7 @@ class _ConditionsMonitorState extends State<ConditionsMonitor> {
     setState(() {
       _connection = ConditionsConnection.connecting;
       _conditions = const DrivingConditions(); // honest reset to UNKNOWN
+      _errorDetail = null;
     });
 
     _sub = widget.source.conditions().listen(
@@ -64,6 +67,14 @@ class _ConditionsMonitorState extends State<ConditionsMonitor> {
         setState(() {
           _conditions = const DrivingConditions();
           _connection = ConditionsConnection.error;
+          // Name the cause when the SDK named it. A vehicle that reports none
+          // of the signals this card needs is a different fact from a broken
+          // link — and Reconnect will not fix it — so it must not hide behind
+          // the same "Signal lost".
+          _errorDetail = error is UnknownSignalPathsException
+              ? 'This vehicle reports none of the signals this card needs: '
+                  '${error.paths.join(', ')}'
+              : null;
         });
       },
       onDone: () {
@@ -92,6 +103,7 @@ class _ConditionsMonitorState extends State<ConditionsMonitor> {
       conditions: _conditions,
       connection: _connection,
       onReconnect: _connect,
+      errorDetail: _errorDetail,
     );
   }
 }

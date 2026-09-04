@@ -11,6 +11,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kuksa_dart_sdk/kuksa_dart_sdk.dart';
 
 import 'package:flutter_conditions/conditions_monitor.dart';
 import 'package:flutter_conditions/conditions_source.dart';
@@ -70,7 +71,8 @@ void main() {
     expect(find.text('Live'), findsOneWidget);
   });
 
-  testWidgets('stream error degrades to UNKNOWN and never keeps a stale reading',
+  testWidgets(
+      'stream error degrades to UNKNOWN and never keeps a stale reading',
       (tester) async {
     final source = FakeConditionsSource();
     await tester.pumpWidget(_host(source));
@@ -87,6 +89,70 @@ void main() {
     expect(find.text('UNKNOWN'), findsOneWidget); // honest degrade
     expect(find.text('Signal lost'), findsOneWidget);
     expect(find.text('Reconnect'), findsOneWidget);
+  });
+
+  testWidgets('a vehicle that lacks every needed signal is told so, BY NAME',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    // What KuksaConditionsSource throws when missingSignals() leaves nothing
+    // to subscribe to: the typed SDK error, carrying the paths.
+    source.latest.addError(const UnknownSignalPathsException([
+      'Vehicle.ADAS.ESC.RoadFriction.MostProbable',
+      'Vehicle.ADAS.TCS.IsEngaged',
+    ]));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Signal lost'), findsOneWidget);
+    expect(find.textContaining('reports none of the signals'), findsOneWidget);
+    expect(find.textContaining('Vehicle.ADAS.TCS.IsEngaged'), findsOneWidget);
+    expect(find.text('UNKNOWN'), findsOneWidget);
+  });
+
+  testWidgets('a generic stream error carries no invented detail',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    source.latest.addError(StateError('gRPC stream broke after a while'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Signal lost'), findsOneWidget);
+    expect(find.textContaining('reports none of the signals'), findsNothing);
+  });
+
+  testWidgets(
+      'signals the vehicle lacks are listed as such, never as a reading',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    source.latest.add(const DrivingConditions(
+      roadFriction: 87.0, // percent — a positive good-grip measurement
+      notOnThisVehicle: ['Vehicle.Exterior.AirTemperature'],
+    ));
+    await tester.pump();
+
+    expect(find.text('Live'), findsOneWidget);
+    expect(find.text('Not on this vehicle'), findsOneWidget);
+    expect(
+        find.textContaining('Vehicle.Exterior.AirTemperature'), findsOneWidget);
+    expect(find.textContaining('Air temp'), findsNothing,
+        reason: 'no reading is shown for a signal the vehicle does not have');
+  });
+
+  testWidgets('with every signal present, nothing is listed as missing',
+      (tester) async {
+    final source = FakeConditionsSource();
+    await tester.pumpWidget(_host(source));
+
+    source.latest.add(_ice);
+    await tester.pump();
+
+    expect(find.text('Not on this vehicle'), findsNothing);
   });
 
   testWidgets('stream done (server ended) degrades and offers reconnect',

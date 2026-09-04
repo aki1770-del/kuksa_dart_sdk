@@ -27,6 +27,7 @@ void main() async {
     await publishValue(client);
     await publishNarrowInteger(client);
     await listMetadata(client);
+    await expand(client);
     await subscribe(client);
   } finally {
     await client.dispose();
@@ -87,6 +88,24 @@ Future<void> listMetadata(KuksaClient client) async {
   for (final m in response.metadata) {
     print('  - ${m.path}');
   }
+}
+
+/// Expands a wildcard pattern into the leaf paths this databroker has, and
+/// asks whether a signal exists before using it.
+///
+/// `kuksa.val.v2` takes exact leaf paths in Subscribe/GetValue(s): a wildcard
+/// or a branch there answers NOT_FOUND. The expansion is explicit, from the
+/// broker's own metadata, so the caller sees the list it is about to subscribe.
+Future<void> expand(KuksaClient client) async {
+  const pattern = 'Vehicle.ADAS.ESC.**';
+  final leaves = await client.expand(pattern);
+  print('[expand] $pattern -> ${leaves.length} leaf path(s)');
+  for (final p in leaves) {
+    print('  - $p');
+  }
+  print('[hasSignal] $_path: ${await client.hasSignal(_path)}');
+  print('[hasSignal] Vehicle.NoSuchSignal: '
+      '${await client.hasSignal('Vehicle.NoSuchSignal')}');
 }
 
 /// Subscribes to a signal and prints the first update.

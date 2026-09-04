@@ -28,7 +28,9 @@ import '../generated/kuksa/val/v2/val.pbgrpc.dart' as pb_grpc;
 import '../generated/kuksa/val/v2/val.pb.dart' as pb;
 import '../generated/kuksa/val/v2/types.pb.dart' as pb_types;
 import 'datapoint.dart';
+import 'signal_pattern.dart';
 import 'vss_datatype.dart';
+import 'vss_entry_type.dart';
 
 /// Client for the KUKSA databroker v2 (`kuksa.val.v2.VAL` service).
 ///
@@ -103,15 +105,29 @@ class KuksaClient {
 
   /// Reads the current values of the given [paths] in a single batch call.
   ///
-  /// Returns a map of path → [Datapoint]. Absent or unknown signals are
-  /// represented as [Datapoint] with [Datapoint.hasValue] == false.
+  /// Returns a map of path → [Datapoint]. A signal the databroker knows but
+  /// that no provider has written yet comes back as a [Datapoint] with
+  /// [Datapoint.hasValue] == false.
+  ///
+  /// A signal the databroker does **not** know is different: `GetValues` is
+  /// all-or-nothing, so one unknown path fails the whole call with
+  /// [UnknownSignalPathsException] naming it, and no value is returned for
+  /// the paths it does know. Until 0.2.7 this comment claimed an unknown
+  /// signal came back as an empty datapoint; measured against databroker
+  /// 0.7.1 it never did — the call failed with `NOT_FOUND`.
   Future<Map<String, Datapoint>> getValues(List<String> paths) async {
     final request = pb.GetValuesRequest(
       signalIds: paths.map(
         (p) => pb_types.SignalID(path: p),
       ),
     );
-    final response = await _client.getValues(request, options: _callOptions);
+    final pb.GetValuesResponse response;
+    try {
+      response = await _client.getValues(request, options: _callOptions);
+    } on GrpcError catch (e) {
+      if (e.code != StatusCode.notFound) rethrow;
+      throw await _unknownPathsError(paths, e);
+    }
     return {
       for (var i = 0; i < paths.length && i < response.dataPoints.length; i++)
         paths[i]: Datapoint(raw: response.dataPoints[i], path: paths[i]),
@@ -119,19 +135,31 @@ class KuksaClient {
   }
 
   /// Reads a single signal's current value.
+  ///
+  /// Throws [UnknownSignalPathsException] if the databroker does not know
+  /// [path]. A known signal that no provider has written yet is returned as a
+  /// [Datapoint] with [Datapoint.hasValue] == false.
   Future<Datapoint> getValue(String path) async {
     final request = pb.GetValueRequest(
       signalId: pb_types.SignalID(path: path),
     );
-    final response = await _client.getValue(request, options: _callOptions);
+    final pb.GetValueResponse response;
+    try {
+      response = await _client.getValue(request, options: _callOptions);
+    } on GrpcError catch (e) {
+      if (e.code != StatusCode.notFound) rethrow;
+      throw UnknownSignalPathsException([path],
+          requested: [path], brokerMessage: e.message);
+    }
     return Datapoint(raw: response.dataPoint, path: path);
   }
 
   /// Subscribes to continuous updates for [paths].
   ///
-  /// Returns a broadcast [Stream] of update maps. Each map contains only
-  /// the signals that changed in that update cycle — not all subscribed
-  /// signals. The first emission contains the current values of all paths.
+  /// Returns a single-subscription [Stream] of update maps (until 0.2.7 this
+  /// comment said *broadcast*; it never was). Each map contains only the
+  /// signals that changed in that update cycle — not all subscribed signals.
+  /// The first emission contains the current values of all paths.
   ///
   /// The stream is closed when the gRPC server stream ends or the channel
   /// is disconnected. Reconnect and re-subscribe as needed.
@@ -161,15 +189,32 @@ class KuksaClient {
   /// [RoadFriction.classifyDatapoint] exists to make both mistakes unavailable.
   /// ## One absent signal ends the whole subscription
   ///
-  /// `kuksa.val.v2` subscribes to [paths] as a single all-or-nothing request.
-  /// If the databroker does not know **one** of them it answers `NOT_FOUND`
-  /// and **no** signal is ever delivered — measured against databroker 0.7.0:
-  /// `[Vehicle.Speed]` streams, `[Vehicle.Speed, <absent>]` dies.
+  /// `kuksa.val.v2` subscribes to [paths] as a single all-or-nothing request,
+  /// by design (eclipse-kuksa/kuksa-databroker#230: a caller naming several
+  /// signals is taken to mean *all of them, or fail*). If the databroker does
+  /// not know **one** of them it answers `NOT_FOUND` and **no** signal is ever
+  /// delivered — measured against databroker 0.7.1: `[Vehicle.Speed]`
+  /// streams, `[Vehicle.Speed, <absent>]` dies. The broker's message is the
+  /// bare `Path not found`; it does not say which path.
   ///
   /// Vehicles differ in which VSS leaves they expose, so a consumer that asks
-  /// for six safety signals loses all six on the one the vehicle lacks. Set
-  /// [skipUnknownPaths] to subscribe to the signals this databroker actually
-  /// has and be *told* which ones it lacks, instead of going blind.
+  /// for six safety signals loses all six on the one the vehicle lacks. Two
+  /// ways not to go blind:
+  ///
+  /// - **Decide before subscribing.** [missingSignals] (or [hasSignals]) says
+  ///   which of [paths] this databroker lacks, so the app can choose to work,
+  ///   to work degraded, or to refuse — and tell the driver which.
+  /// - **Or set [skipUnknownPaths]** to subscribe to the signals this
+  ///   databroker actually has and be *told* which ones it lacks.
+  ///
+  /// Without either, the stream errors with [UnknownSignalPathsException]
+  /// **naming the unknown paths** (this package resolves them; the broker
+  /// does not) and delivers no data first. `await for` rethrows it; an
+  /// `onError` that only logs is where that name goes to die.
+  ///
+  /// Wildcards and branches (`Vehicle.ADAS.*`, `Vehicle.ADAS`) are not
+  /// signals — the broker answers `NOT_FOUND` for them too. Use [expand] to
+  /// turn a pattern into leaf paths first.
   Stream<Map<String, Datapoint>> subscribe(
     List<String> paths, {
     /// Server-side buffer size per signal (0 = keep only latest value).
@@ -191,28 +236,43 @@ class KuksaClient {
     /// leaf is [RoadGrip.unknown], never a clear road.
     void Function(List<String> unknownPaths)? onUnknownPaths,
   }) {
+    // Read the stub here so a client that was never connected still fails
+    // synchronously at the call, as it did before the body became a generator.
+    final stub = _client;
     if (!skipUnknownPaths) {
-      return _subscribeExact(paths, bufferSize);
+      return _subscribeExact(stub, paths, bufferSize);
     }
-    return _subscribeKnown(paths, bufferSize, onUnknownPaths);
+    return _subscribeKnown(stub, paths, bufferSize, onUnknownPaths);
   }
 
   Stream<Map<String, Datapoint>> _subscribeExact(
+    pb_grpc.VALClient stub,
     List<String> paths,
     int bufferSize,
-  ) {
+  ) async* {
     final request = pb.SubscribeRequest(
       signalPaths: paths,
       bufferSize: bufferSize,
     );
-
-    return _client.subscribe(request, options: _callOptions).map((response) => {
+    try {
+      await for (final response
+          in stub.subscribe(request, options: _callOptions)) {
+        yield {
           for (final entry in response.entries.entries)
             entry.key: Datapoint(raw: entry.value, path: entry.key),
-        });
+        };
+      }
+    } on GrpcError catch (e) {
+      // The broker's NOT_FOUND names no path. Resolve which of [paths] it does
+      // not know and fail with them spelled out, so the leaf a vehicle lacks
+      // is in the error and not in a hypothesis.
+      if (e.code != StatusCode.notFound) rethrow;
+      throw await _unknownPathsError(paths, e);
+    }
   }
 
   Stream<Map<String, Datapoint>> _subscribeKnown(
+    pb_grpc.VALClient stub,
     List<String> paths,
     int bufferSize,
     void Function(List<String>)? onUnknownPaths,
@@ -221,9 +281,11 @@ class KuksaClient {
     final unknown = paths.where((p) => !known.contains(p)).toList();
 
     if (unknown.isNotEmpty) onUnknownPaths?.call(unknown);
-    if (known.isEmpty) throw UnknownSignalPathsException(unknown);
+    if (known.isEmpty) {
+      throw UnknownSignalPathsException(unknown, requested: paths);
+    }
 
-    yield* _subscribeExact(known, bufferSize);
+    yield* _subscribeExact(stub, known, bufferSize);
   }
 
   /// Returns the subset of [paths] this databroker knows, in the given order.
@@ -253,6 +315,116 @@ class KuksaClient {
       }
     }
     return known;
+  }
+
+  /// The subset of [paths] this databroker does **not** know, in request
+  /// order.
+  ///
+  /// One `ListMetadata` round-trip per path (about 2 ms each against a local
+  /// databroker). Only `NOT_FOUND` counts as missing; any other failure —
+  /// `UNAVAILABLE`, `UNAUTHENTICATED`, … — is rethrown, because a databroker
+  /// that is unreachable has not said the signal is absent, and reporting it
+  /// as absent would tell an app to run degraded when it should be told the
+  /// bus is down.
+  ///
+  /// This is the pre-flight for an all-or-nothing [subscribe]: the app can
+  /// decide to work, to work degraded with the missing signals shown as
+  /// unmeasured, or to refuse — before the subscription fails.
+  ///
+  /// ```dart
+  /// final missing = await client.missingSignals(kSnowSafetySignals);
+  /// if (missing.isNotEmpty) tellTheDriverTheseAreUnmeasured(missing);
+  /// final have = [
+  ///   for (final p in kSnowSafetySignals) if (!missing.contains(p)) p,
+  /// ];
+  /// await for (final update in client.subscribe(have)) { ... }
+  /// ```
+  Future<Set<String>> missingSignals(List<String> paths) async {
+    final known = await resolveKnownPaths(paths);
+    return {
+      for (final path in paths)
+        if (!known.contains(path)) path,
+    };
+  }
+
+  /// Whether this databroker knows **every** one of [paths].
+  ///
+  /// `false` on the first absent path; see [missingSignals] for which.
+  Future<bool> hasSignals(List<String> paths) async =>
+      (await missingSignals(paths)).isEmpty;
+
+  /// Whether this databroker knows [path].
+  Future<bool> hasSignal(String path) => hasSignals([path]);
+
+  /// The concrete leaf paths matching [pattern], sorted.
+  ///
+  /// `kuksa.val.v2` takes exact leaf paths in `Subscribe`, `GetValue` and
+  /// `GetValues` — a wildcard or a branch there answers `NOT_FOUND`. So a
+  /// pattern is expanded here, explicitly, from the broker's own metadata:
+  ///
+  /// ```dart
+  /// final tyres = await client.expand('Vehicle.**.Tire.Pressure');
+  /// final esc = await client.expand('Vehicle.ADAS.ESC');        // a branch
+  /// final sensors = await client.expand('Vehicle.ADAS.**',
+  ///     entryType: VssEntryType.sensor);
+  /// await for (final update in client.subscribe(tyres)) { ... }
+  /// ```
+  ///
+  /// `*` matches one path segment, `**` any number; a pattern with no
+  /// wildcard is a branch and yields every leaf under it — [SignalPattern]
+  /// carries the full rule, shared with the redesigned Python client. The
+  /// match runs client-side over one `ListMetadata` call bounded by the
+  /// pattern's literal prefix (`Vehicle.ADAS` for `Vehicle.ADAS.**`; the whole
+  /// tree, about 1 300 entries and 200 KB, for a pattern that starts with a
+  /// wildcard).
+  ///
+  /// Returns an empty list when nothing matches — including when the literal
+  /// prefix is a branch this databroker does not have. Absence of a branch is
+  /// absence, the same fact [hasSignals] reports as `false`; and a
+  /// [subscribe] of an empty list is refused by the broker with
+  /// `INVALID_ARGUMENT`, so an empty expansion cannot go quiet downstream.
+  /// Throws [ArgumentError] for an unsupported pattern; any gRPC failure
+  /// other than `NOT_FOUND` is rethrown.
+  Future<List<String>> expand(String pattern, {VssEntryType? entryType}) async {
+    final compiled = SignalPattern(pattern);
+    final pb.ListMetadataResponse response;
+    try {
+      response = await listMetadata(filter: compiled.literalPrefix);
+    } on GrpcError catch (e) {
+      if (e.code != StatusCode.notFound) rethrow;
+      return const [];
+    }
+    final out = <String>{};
+    for (final m in response.metadata) {
+      if (!compiled.matches(m.path)) continue;
+      if (entryType != null && vssEntryTypeFrom(m.entryType) != entryType) {
+        continue;
+      }
+      out.add(m.path);
+      // The listing already carries the datatype; keep it so a later publish
+      // on the same path costs no second round-trip.
+      final type = vssDataTypeFrom(m.dataType);
+      if (type != null) _dataTypeCache[m.path] = type;
+    }
+    return out.toList()..sort();
+  }
+
+  /// Builds the error for a request the broker refused with `NOT_FOUND`.
+  ///
+  /// The broker's message is the bare `Path not found`, so which of
+  /// [requested] it does not know is resolved here. If that lookup itself
+  /// fails, the error still carries every requested path and says that the
+  /// culprit could not be determined — it never reports "nothing missing".
+  Future<UnknownSignalPathsException> _unknownPathsError(
+      List<String> requested, GrpcError cause) async {
+    List<String> missing;
+    try {
+      missing = (await missingSignals(requested)).toList();
+    } catch (_) {
+      missing = const [];
+    }
+    return UnknownSignalPathsException(missing,
+        requested: requested, brokerMessage: cause.message);
   }
 
   /// The VSS datatype this databroker declares for [path].
@@ -407,9 +579,18 @@ class KuksaClient {
     await _client.publishValue(request, options: _callOptions);
   }
 
-  /// Queries the server metadata for a list of signal paths or a pattern.
+  /// Lists the databroker's metadata under a root.
   ///
-  /// [filter] is an optional VSS path prefix/glob (e.g., `"Vehicle.ADAS.*"`).
+  /// [filter] is sent as the request's `root` field — a branch
+  /// (`Vehicle.ADAS`), a single leaf, or empty for the whole tree. The name
+  /// predates the measurement: the wire message also has a `filter` field,
+  /// and databroker 0.7.1 ignores it (`root: Vehicle, filter: Vehicle.Speed`
+  /// returns all 1 263 entries under `Vehicle`), as its own proto comment
+  /// admits. Wildcards in `root` work today, and the same comment says they
+  /// *"may be removed in a future release"* — prefer [expand], which matches
+  /// client-side and does not depend on them.
+  ///
+  /// Throws `GrpcError` `NOT_FOUND` when the root branch does not exist.
   Future<pb.ListMetadataResponse> listMetadata({String filter = ''}) {
     final request = pb.ListMetadataRequest(root: filter);
     return _client.listMetadata(request, options: _callOptions);
@@ -447,20 +628,67 @@ class UndeclaredSignalDataTypeException implements Exception {
       'fix the databroker metadata rather than guessing.';
 }
 
-/// Thrown by [KuksaClient.subscribe] with `skipUnknownPaths: true` when the
-/// databroker knows **none** of the requested paths.
+/// Thrown when the databroker does not know a signal path it was asked for.
 ///
-/// The subscription fails loudly rather than handing back an empty stream: a
-/// consumer that receives nothing and no error cannot tell "this vehicle is
-/// safe" from "this vehicle told us nothing".
+/// Raised by [KuksaClient.subscribe], [KuksaClient.getValues] and
+/// [KuksaClient.getValue] when the broker answers `NOT_FOUND` — with the
+/// unknown paths **named**, which the broker's own message (`Path not found`)
+/// does not do; by [KuksaClient.subscribe] with `skipUnknownPaths: true` when
+/// it knows **none** of the requested paths; and by
+/// [KuksaClient.resolveDataType] for a single unknown path.
+///
+/// It exists so the failure is loud and specific: a consumer that receives
+/// nothing and no error cannot tell "this vehicle is safe" from "this vehicle
+/// told us nothing", and one that receives `NOT_FOUND` alone cannot tell
+/// which of six safety signals the vehicle lacks. Prefer
+/// [KuksaClient.missingSignals] before the call, to decide, over catching
+/// this after it.
 class UnknownSignalPathsException implements Exception {
-  /// The requested paths, none of which the databroker knows.
+  /// The paths the databroker does not know.
+  ///
+  /// Empty only when the broker answered `NOT_FOUND` and the follow-up
+  /// metadata lookup could not determine which of [requested] is unknown.
   final List<String> paths;
 
-  const UnknownSignalPathsException(this.paths);
+  /// Every path the failed request named, when the failure was a request.
+  final List<String>? requested;
+
+  /// The broker's own status message, when the failure was a request.
+  final String? brokerMessage;
+
+  const UnknownSignalPathsException(this.paths,
+      {this.requested, this.brokerMessage});
+
+  /// True when every requested path is unknown — or when [requested] is not
+  /// known, in which case [paths] is the whole request.
+  bool get allUnknown => requested == null || requested!.every(paths.contains);
 
   @override
-  String toString() =>
-      'UnknownSignalPathsException: the databroker knows none of the '
-      'requested signals: ${paths.join(', ')}';
+  String toString() {
+    final broker =
+        brokerMessage == null ? '' : ' (broker: NOT_FOUND, "$brokerMessage")';
+    final hint = paths.any((p) => p.contains('*'))
+        ? ' A wildcard is not a signal path — use expand() to turn it into '
+            'leaf paths first.'
+        : '';
+    if (paths.isEmpty && requested != null) {
+      return 'UnknownSignalPathsException: the databroker answered NOT_FOUND '
+          'for [${requested!.join(', ')}] but which of them it does not know '
+          'could not be determined — the follow-up metadata lookup failed or '
+          'found them all$broker. Check missingSignals() once the broker is '
+          'reachable.';
+    }
+    if (allUnknown) {
+      return 'UnknownSignalPathsException: the databroker knows none of the '
+          'requested signals: ${paths.join(', ')}$broker.$hint';
+    }
+    final total = requested!.toSet().length;
+    final knownCount = total - paths.toSet().length;
+    return 'UnknownSignalPathsException: the databroker does not know '
+        '${paths.length} of the $total requested signals: '
+        '${paths.join(', ')}$broker. kuksa.val.v2 is all-or-nothing, so '
+        'nothing was delivered for the $knownCount it does know either. '
+        'Check missingSignals()/hasSignals() before the call, or subscribe '
+        'with skipUnknownPaths: true and read onUnknownPaths.$hint';
+  }
 }

@@ -75,10 +75,10 @@ jobs:
 
       - run: dart pub get
 
-      - name: The wire type follows the signal, proven on the wire
+      - name: Proven on the wire — wire type, resilience, and signal availability
         env:
           KUKSA_TEST_REQUIRE_BROKER: '1'
-        run: dart test test/publish_wire_type_test.dart test/subscribe_resilience_test.dart --reporter=expanded
+        run: dart test test/publish_wire_type_test.dart test/subscribe_resilience_test.dart test/signal_availability_test.dart --reporter=expanded
 
       - name: Remove the databroker
         if: always()

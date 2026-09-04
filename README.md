@@ -63,6 +63,61 @@ await client.dispose();
 
 ---
 
+## Decide before you subscribe
+
+`kuksa.val.v2` `Subscribe` (and `GetValues`) is **all-or-nothing, by design**
+([eclipse-kuksa/kuksa-databroker#230](https://github.com/eclipse-kuksa/kuksa-databroker/issues/230)):
+one path the databroker does not know fails the whole request with
+`NOT_FOUND`, nothing is delivered for the paths it does know, and the broker's
+message — `Path not found` — does not say which. Vehicles differ in which VSS
+leaves they expose, so a six-signal road-condition subscription dies on the one
+leaf a deployment lacks.
+
+Ask first, then choose — work, work degraded, or refuse:
+
+```dart
+final missing = await client.missingSignals(kSnowSafetySignals); // Set<String>
+if (missing.isNotEmpty) {
+  // Tell the driver these readings are UNMEASURED. Absence is not a clear road.
+}
+final have = [for (final p in kSnowSafetySignals) if (!missing.contains(p)) p];
+await for (final update in client.subscribe(have)) { /* ... */ }
+
+await client.hasSignal('Vehicle.Speed');                        // true
+await client.hasSignals(['Vehicle.Speed', 'Vehicle.NoSuch']);   // false
+```
+
+Only `NOT_FOUND` counts as missing. An unreachable broker **throws** — reporting
+its signals as absent would tell an app to run degraded when the bus is down.
+
+If you subscribe without checking, the stream errors with
+`UnknownSignalPathsException` **naming the unknown paths** — this package
+resolves them from the broker's metadata — and delivers no data first.
+`await for` rethrows it. An `onError` that only logs is where that name goes
+to die; ours did (see the changelog).
+
+### Wildcards: `expand()`
+
+`Subscribe`/`GetValue(s)` take exact leaf paths. `Vehicle.ADAS.*`,
+`Vehicle.**` and the branch `Vehicle.ADAS` all answer `NOT_FOUND` (measured,
+databroker 0.7.1). Turn a pattern into leaves explicitly, from the broker's own
+metadata:
+
+```dart
+final tyres = await client.expand('Vehicle.**.Tire.Pressure');
+final esc = await client.expand('Vehicle.ADAS.ESC');              // a branch
+final sensors = await client.expand('Vehicle.ADAS.**',
+    entryType: VssEntryType.sensor);
+await for (final update in client.subscribe(tyres)) { /* ... */ }
+```
+
+`*` matches one segment, `**` any number; a pattern with no wildcard is a
+branch and yields every leaf under it. The rule is the redesigned Python
+client's, so a pattern means one thing in both SDKs. An empty result means
+nothing matched — including a branch this vehicle does not have.
+
+---
+
 ## Road friction
 
 `Vehicle.ADAS.ESC.RoadFriction.MostProbable` is declared by VSS as

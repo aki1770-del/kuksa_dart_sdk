@@ -51,4 +51,6 @@ export 'src/client/kuksa_client.dart';
 export 'src/client/datapoint.dart';
 export 'src/client/road_friction.dart';
 export 'src/client/signal_path.dart';
+export 'src/client/signal_pattern.dart';
 export 'src/client/vss_datatype.dart';
+export 'src/client/vss_entry_type.dart';

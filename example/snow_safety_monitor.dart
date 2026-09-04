@@ -33,10 +33,32 @@ void main() async {
         'publishing it). Conditions UNKNOWN — no condition is assumed.');
   }
 
-  // Continuous snow-safety subscription
-  print('\nMonitoring snow safety signals... (Ctrl+C to stop)\n');
+  // Decide BEFORE subscribing. kuksa.val.v2 Subscribe is all-or-nothing: one
+  // leaf this vehicle lacks fails the whole request, and the broker's
+  // NOT_FOUND does not say which. Ask first, then choose — all present: work;
+  // some absent: work degraded and SAY which readings will stay UNKNOWN;
+  // none: stop, with the signals named.
+  final missing = await client.missingSignals(kSnowSafetySignals);
+  if (missing.isNotEmpty) {
+    print('This databroker does not have: ${missing.join(', ')}');
+    print('Those readings will stay UNKNOWN — absence is not a clear road.');
+  }
+  final have = [
+    for (final p in kSnowSafetySignals)
+      if (!missing.contains(p)) p,
+  ];
+  if (have.isEmpty) {
+    print('None of the snow-safety signals exist on this databroker; '
+        'there is nothing to monitor.');
+    await client.dispose();
+    return;
+  }
 
-  await for (final update in client.subscribe(kSnowSafetySignals)) {
+  // Continuous snow-safety subscription
+  print(
+      '\nMonitoring ${have.length} snow safety signals... (Ctrl+C to stop)\n');
+
+  await for (final update in client.subscribe(have)) {
     _handleUpdate(update);
   }
 

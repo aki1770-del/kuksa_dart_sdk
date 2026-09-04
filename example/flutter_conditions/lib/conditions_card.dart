@@ -30,10 +30,17 @@ class DrivingConditionsCard extends StatelessWidget {
     required this.conditions,
     required this.connection,
     this.onReconnect,
+    this.errorDetail,
   });
 
   final DrivingConditions conditions;
   final ConditionsConnection connection;
+
+  /// Why the subscription is broken, when the SDK could name it — e.g. the
+  /// vehicle reports none of the signals this card needs. Shown under the
+  /// status row, because "Signal lost" alone reads like a cable, and
+  /// Reconnect will not grow the vehicle a sensor.
+  final String? errorDetail;
 
   /// Shown only when the subscription is broken/ended.
   final VoidCallback? onReconnect;
@@ -145,6 +152,17 @@ class DrivingConditionsCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (errorDetail != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                errorDetail!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.red.shade700,
+                  fontFamily: 'Roboto',
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
 
             // Headline: the surface state (UNKNOWN when not enough signal).
@@ -215,12 +233,41 @@ class DrivingConditionsCard extends StatelessWidget {
                       ),
                       child: Text(
                         s,
-                        style: const TextStyle(
-                            fontSize: 12, fontFamily: 'Roboto'),
+                        style:
+                            const TextStyle(fontSize: 12, fontFamily: 'Roboto'),
                       ),
                     ),
                 ],
               ),
+
+            // Signals the vehicle does not have at all. Absence is shown as
+            // absence, by name — never as a reading, never by omission.
+            if (conditions.notOnThisVehicle.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Not on this vehicle',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade700,
+                  letterSpacing: 0.5,
+                  fontFamily: 'Roboto',
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                conditions.notOnThisVehicle.join('\n'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  fontFamily: 'Roboto',
+                ),
+              ),
+              const Text(
+                'These readings stay UNKNOWN: the vehicle does not report them.',
+                style: TextStyle(fontSize: 11, fontFamily: 'Roboto'),
+              ),
+            ],
 
             if (showReconnect) ...[
               const SizedBox(height: 14),

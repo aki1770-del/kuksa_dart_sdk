@@ -51,12 +51,17 @@ void main() {
   tearDownAll(() async => client.dispose());
 
   group('a missing signal never blinds the rest', () {
-    test('today: one absent path fails the entire subscription', () async {
+    test('one absent path fails the entire subscription, and is NAMED',
+        () async {
       if (!brokerUp) return markTestSkipped(noBroker);
       expect(
           await firstEvent(client.subscribe([present])), startsWith('data:'));
-      expect(await firstEvent(client.subscribe([present, absent])),
-          contains('NOT_FOUND'));
+      expect(
+          await firstEvent(client.subscribe([present, absent])),
+          allOf(contains('UnknownSignalPathsException'), contains(absent),
+              contains('NOT_FOUND')),
+          reason: 'the broker says only "Path not found"; this package '
+              'resolves and names the path');
     }, skip: null);
 
     test('skipUnknownPaths: the known signals still stream', () async {

@@ -49,14 +49,32 @@ class KuksaConditionsSource implements ConditionsSource {
     final client = _client = KuksaClient(host: host, port: port);
     await client.connect();
 
+    // Decide BEFORE subscribing. kuksa.val.v2 Subscribe is all-or-nothing, by
+    // design: one leaf this vehicle lacks fails the whole request, and the
+    // broker's NOT_FOUND names no path. So ask which of the signals this
+    // databroker has, and choose — all: work; some: work degraded, with the
+    // absent ones shown as "not on this vehicle" rather than silently null;
+    // none: fail with the signals NAMED, never with an empty stream.
+    final missing = (await client.missingSignals(kSnowSafetySignals)).toList();
+    final have = [
+      for (final p in kSnowSafetySignals)
+        if (!missing.contains(p)) p,
+    ];
+    if (have.isEmpty) {
+      throw UnknownSignalPathsException(missing, requested: kSnowSafetySignals);
+    }
+
     // `await for` over the SDK stream means: cancelling OUR subscription
     // cancels this loop, which cancels the underlying gRPC stream — the
     // correct teardown the AGL examples were missing. When the server stream
     // ends, the loop completes and our stream emits `onDone`.
-    await for (final update in client.subscribe(kSnowSafetySignals)) {
+    await for (final update in client.subscribe(have)) {
       _snapshot.addAll(update);
       // Hand out a defensive copy so a downstream holder can't mutate ours.
-      yield DrivingConditions.fromSignals(Map<String, Datapoint>.of(_snapshot));
+      yield DrivingConditions.fromSignals(
+        Map<String, Datapoint>.of(_snapshot),
+        notOnThisVehicle: missing,
+      );
     }
   }
 
