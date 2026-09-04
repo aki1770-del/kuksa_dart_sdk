@@ -128,6 +128,57 @@ in [`spec/`](spec/)** by `tool/gen_signal_table.dart`, and CI fails if it drifts
 
 ---
 
+## Publishing values
+
+`publishValue` encodes for the **signal**, not for the Dart value:
+
+```dart
+await client.publishValue(kVehicleSpeed, 100.34);        // float
+await client.publishValue(kRoadSurfaceCondition, 4);     // uint8 enum -> ICE
+await client.publishValue('Vehicle.Diagnostics.DTCList', ['P0001']);
+```
+
+A Dart `int` cannot tell a client which wire field to use. `kuksa.val.v2.Value`
+has one `uint32` field carrying every `uint8`, `uint16` and `uint32` signal, and
+one `int32` field carrying every `int8`, `int16` and `int32` signal — and VSS
+6.1rc2 declares just **9 of its 1382 leaves** as `int32`, against **411** narrow
+integers. So the datatype is read from the databroker's own signal metadata
+(once per path, then cached) and the value is encoded into the field that
+databroker accepts.
+
+| VSS datatype | Dart value you pass |
+|---|---|
+| `boolean` | `bool` |
+| `string` | `String` |
+| `int8` `int16` `int32` `int64` | `int` |
+| `uint8` `uint16` `uint32` `uint64` | `int` |
+| `float` `double` | `double`, or `int` (widened) |
+| any `…[]` datatype | `List` of the above |
+
+An `int` written to a `float` signal is widened. A `double` written to an
+integer signal is **refused**, not rounded: a silently truncated value on a
+safety signal cannot be told apart from a measured one. Out-of-range integers
+are refused with the VSS datatype and the bound named.
+
+To skip the metadata lookup — a provider writing one signal in a loop, or a test
+that must not depend on broker metadata — state the datatype yourself:
+
+```dart
+await client.publishTyped(kRoadSurfaceCondition, VssDataType.uint8, 4);
+```
+
+`publishTyped` needs no protobuf import. `publishDatapoint` still takes a
+generated `kuksa.val.v2.Datapoint` and remains for consumers of 0.2.6 and
+earlier, but it is not the recommended surface: that type collides by name with
+this package's own `Datapoint`, so reaching it means a prefixed import of
+`src/generated/…`, a private path carrying no stability promise.
+
+`kuksa.val.v2.Value` has no timestamp field, so a `timestamp` signal cannot be
+published by any client of this API. That is reported as such rather than
+guessed at.
+
+---
+
 ## Prerequisites
 
 - A running [kuksa-databroker](https://github.com/eclipse-kuksa/kuksa-databroker) v0.5+

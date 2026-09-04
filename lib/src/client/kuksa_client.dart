@@ -28,6 +28,7 @@ import '../generated/kuksa/val/v2/val.pbgrpc.dart' as pb_grpc;
 import '../generated/kuksa/val/v2/val.pb.dart' as pb;
 import '../generated/kuksa/val/v2/types.pb.dart' as pb_types;
 import 'datapoint.dart';
+import 'vss_datatype.dart';
 
 /// Client for the KUKSA databroker v2 (`kuksa.val.v2.VAL` service).
 ///
@@ -47,6 +48,13 @@ class KuksaClient {
 
   ClientChannel? _channel;
   pb_grpc.VALClient? _stub;
+
+  /// Datatype per signal path, as this databroker declared it.
+  ///
+  /// A signal's datatype does not change while a databroker is running, so the
+  /// metadata lookup behind [resolveDataType] is made once per path and reused
+  /// — a provider publishing at 50 Hz pays for it on its first write only.
+  final Map<String, VssDataType> _dataTypeCache = {};
 
   KuksaClient({
     required this.host,
@@ -233,12 +241,58 @@ class KuksaClient {
     for (final path in paths) {
       try {
         final metadata = await listMetadata(filter: path);
-        if (metadata.metadata.any((m) => m.path == path)) known.add(path);
+        for (final m in metadata.metadata.where((m) => m.path == path)) {
+          known.add(path);
+          // This response already carries the datatype; remember it so a later
+          // publish on the same path costs no second round-trip.
+          final type = vssDataTypeFrom(m.dataType);
+          if (type != null) _dataTypeCache[path] = type;
+        }
       } on GrpcError catch (e) {
         if (e.code != StatusCode.notFound) rethrow;
       }
     }
     return known;
+  }
+
+  /// The VSS datatype this databroker declares for [path].
+  ///
+  /// Read once per path from the broker's own signal metadata and cached; pass
+  /// `refresh: true` to re-read it.
+  ///
+  /// The broker is the authority here, not a vendored copy of the
+  /// specification. A vehicle serves the VSS leaves it actually has, plus any
+  /// overlay its integrator added, and only the broker knows that set. Throws
+  /// [UnknownSignalPathsException] if this databroker does not know [path].
+  Future<VssDataType> resolveDataType(String path,
+      {bool refresh = false}) async {
+    if (!refresh) {
+      final cached = _dataTypeCache[path];
+      if (cached != null) return cached;
+    }
+    final pb.ListMetadataResponse response;
+    try {
+      response = await listMetadata(filter: path);
+    } on GrpcError catch (e) {
+      // Only NOT_FOUND means the databroker does not have this signal. Any
+      // other failure (UNAVAILABLE, UNAUTHENTICATED, ...) has told us nothing
+      // about the signal, and reporting it as absent would hide the real
+      // fault behind a plausible one.
+      if (e.code == StatusCode.notFound) {
+        throw UnknownSignalPathsException([path]);
+      }
+      rethrow;
+    }
+    for (final m in response.metadata) {
+      if (m.path != path) continue;
+      final type = vssDataTypeFrom(m.dataType);
+      if (type == null) {
+        throw UndeclaredSignalDataTypeException(path);
+      }
+      _dataTypeCache[path] = type;
+      return type;
+    }
+    throw UnknownSignalPathsException([path]);
   }
 
   /// Publishes a single value for [path] to the databroker.
@@ -247,49 +301,103 @@ class KuksaClient {
   /// a provider claiming a signal pushes its current value so consumers can
   /// read or subscribe to it.
   ///
-  /// [value] is mapped to the matching VSS primitive by its Dart runtime type:
+  /// ## The wire type follows the SIGNAL, not the Dart value
   ///
-  /// | Dart type      | VSS value field |
-  /// |----------------|-----------------|
-  /// | `bool`         | `bool`          |
-  /// | `int`          | `int32`         |
-  /// | `double`       | `float`         |
-  /// | `String`       | `string`        |
+  /// [value] is encoded into the `kuksa.val.v2.Value` field that this
+  /// databroker accepts for [path], looked up from the signal's declared VSS
+  /// datatype via [resolveDataType]. A Dart `int` is not enough to choose that
+  /// field: `uint8`, `uint16` and `uint32` signals all travel in the `uint32`
+  /// field, `int8`/`int16`/`int32` all travel in `int32`, and VSS 6.1rc2
+  /// declares only 9 of its 1382 leaves as `int32`.
   ///
-  /// For wider or unsigned integer types, array types, or explicit `double`
-  /// (vs `float`) precision, construct the [pb_types.Value] yourself and use
-  /// [publishDatapoint].
+  /// Until 0.2.6 this method mapped every Dart `int` to `int32`, so publishing
+  /// `Vehicle.Exterior.RoadSurfaceCondition` — a `uint8` — failed with
+  /// `INVALID_ARGUMENT: Wrong type provided` and there was no supported way to
+  /// write it.
+  ///
+  /// Accepted Dart types per VSS datatype:
+  ///
+  /// | VSS datatype                          | Dart value            |
+  /// |---------------------------------------|-----------------------|
+  /// | `boolean`                             | `bool`                |
+  /// | `string`                              | `String`              |
+  /// | `int8` `int16` `int32` `int64`        | `int`                 |
+  /// | `uint8` `uint16` `uint32` `uint64`    | `int`                 |
+  /// | `float` `double`                      | `double` (or `int`)   |
+  /// | any `…[]` datatype                    | `List` of the above   |
+  ///
+  /// An `int` offered to a `float` or `double` signal is widened. A `double`
+  /// offered to an integer signal is **refused** rather than truncated: a
+  /// silently rounded value on a safety signal cannot be told apart from a
+  /// measured one. Out-of-range integers are refused with the VSS datatype and
+  /// the bound named — see [VssTypeMismatch].
+  ///
+  /// Costs one metadata lookup the first time a given [path] is published to,
+  /// and none afterwards. Use [publishTyped] to skip it entirely.
   ///
   /// Example:
   /// ```dart
-  /// await client.publishValue('Vehicle.Speed', 100.34);
+  /// await client.publishValue('Vehicle.Speed', 100.34);            // float
+  /// await client.publishValue(kRoadSurfaceCondition, 4);           // uint8
+  /// await client.publishValue('Vehicle.Diagnostics.DTCList', ['P0001']);
   /// ```
   Future<void> publishValue(String path, Object value) {
-    final pb_types.Value v;
-    if (value is bool) {
-      v = pb_types.Value(bool_12: value);
-    } else if (value is int) {
-      v = pb_types.Value(int32: value);
-    } else if (value is double) {
-      v = pb_types.Value(float: value);
-    } else if (value is String) {
-      v = pb_types.Value(string: value);
-    } else {
+    if (value is! bool &&
+        value is! int &&
+        value is! double &&
+        value is! String &&
+        value is! List) {
       throw ArgumentError.value(
         value,
         'value',
-        'Unsupported Dart type for publishValue. Pass bool, int, double, or '
-            'String, or use publishDatapoint() with an explicit Value.',
+        'Unsupported Dart type for publishValue. Pass bool, int, double, '
+            'String, or a List of those. To state the VSS datatype yourself, '
+            'use publishTyped().',
       );
     }
-    return publishDatapoint(path, pb_types.Datapoint(value: v));
+    return _publishResolved(path, value);
   }
 
-  /// Publishes a fully-formed [datapoint] for [path] to the databroker.
+  Future<void> _publishResolved(String path, Object value) async {
+    final type = await resolveDataType(path);
+    return publishTyped(path, type, value);
+  }
+
+  /// Publishes [value] for [path] as an explicitly stated VSS [type].
   ///
-  /// Use this when you need control over the value type (e.g. unsigned or
-  /// 64-bit integers, arrays, or a timestamp) beyond what [publishValue]'s
-  /// Dart-type mapping covers.
+  /// Use when the datatype is already known and the metadata lookup that
+  /// [publishValue] performs is not wanted — a provider writing one signal in a
+  /// tight loop, or a test that must not depend on broker metadata.
+  ///
+  /// This is the supported way to control the wire encoding. It needs no
+  /// protobuf import: state the VSS datatype and this package chooses the
+  /// `Value` field the databroker accepts for it.
+  ///
+  /// ```dart
+  /// await client.publishTyped(kRoadSurfaceCondition, VssDataType.uint8, 4);
+  /// ```
+  ///
+  /// Throws [VssTypeMismatch] if [value] cannot be written as [type].
+  Future<void> publishTyped(String path, VssDataType type, Object value) {
+    return publishDatapoint(
+      path,
+      pb_types.Datapoint(
+        value: encodeVssValue(path: path, type: type, value: value),
+      ),
+    );
+  }
+
+  /// Publishes a fully-formed protobuf [datapoint] for [path].
+  ///
+  /// **Prefer [publishValue] or [publishTyped].** Both cover every VSS datatype
+  /// the wire format can carry, and neither requires the caller to import
+  /// generated protobuf code.
+  ///
+  /// This method's parameter is the generated `kuksa.val.v2.Datapoint`, which
+  /// collides by name with this package's own [Datapoint] wrapper, so reaching
+  /// it means a prefixed import of `src/generated/…` — a private path that
+  /// carries no API-stability promise. It stays public because consumers of
+  /// 0.2.6 and earlier call it; it is not the recommended surface.
   Future<void> publishDatapoint(
       String path, pb_types.Datapoint datapoint) async {
     final request = pb.PublishValueRequest(
@@ -320,7 +428,23 @@ class KuksaClient {
     await _channel?.shutdown();
     _channel = null;
     _stub = null;
+    _dataTypeCache.clear();
   }
+}
+
+/// Thrown when the databroker knows a path but declares no datatype for it.
+class UndeclaredSignalDataTypeException implements Exception {
+  /// The path whose metadata carried `DATA_TYPE_UNSPECIFIED`.
+  final String path;
+
+  const UndeclaredSignalDataTypeException(this.path);
+
+  @override
+  String toString() =>
+      'UndeclaredSignalDataTypeException: the databroker knows '
+      '$path but declares no datatype for it, so this client cannot tell '
+      'which wire type to publish. Absence of a datatype is not a default: '
+      'fix the databroker metadata rather than guessing.';
 }
 
 /// Thrown by [KuksaClient.subscribe] with `skipUnknownPaths: true` when the

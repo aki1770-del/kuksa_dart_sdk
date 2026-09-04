@@ -1,3 +1,122 @@
+## 0.2.7
+
+### 31 % of the specification could not be written through this package
+
+`publishValue` mapped **every** Dart `int` to the `int32` field of
+`kuksa.val.v2.Value`. Measured against the COVESA VSS 6.1rc2 release
+(`vss.json`, 1382 leaves): **9 leaves are `int32`. 411 are `uint8`, `uint16`,
+`int16`, `int8` or `uint32`, and 23 more are arrays.** A Dart `int` cannot
+choose the field on its own — `uint8`, `uint16` and `uint32` all travel in the
+`uint32` field, `int8`/`int16`/`int32` all travel in `int32` — so the runtime
+type of the value is the wrong thing to look at.
+
+**`Vehicle.Exterior.RoadSurfaceCondition` could not be published at all.** It is
+a `uint8` enum (4 = ICE), and a real databroker answered:
+
+```
+gRPC Error (code: 3, INVALID_ARGUMENT, message: Wrong type provided (id: 891))
+```
+
+That path is the first signal this project merged into VSS. Our own SDK could
+not write it.
+
+The documented escape — "construct the `Value` yourself and use
+`publishDatapoint`" — did not work either. `publishDatapoint` takes the
+generated `kuksa.val.v2.Datapoint`, `lib/kuksa_dart_sdk.dart` exports no
+generated file, and importing one alongside the barrel gives **two classes
+named `Datapoint`**: `ambiguous_import`, a hard analyzer error whose text reads
+as the caller's mistake rather than ours. The only route that compiled was a
+prefixed import of `package:kuksa_dart_sdk/src/generated/…`, a private path
+carrying no stability promise, and nothing said so.
+
+**If you publish integer or array signals, they were failing.** Not silently:
+the databroker rejected the write with `INVALID_ARGUMENT`. A provider whose
+error handling only logs has been writing nothing to those signals.
+
+### The wire type now follows the signal
+
+`publishValue` reads the signal's declared VSS datatype from the databroker's
+own metadata — once per path, then cached — and encodes into the field that
+databroker accepts. Every VSS datatype the wire format can carry is covered,
+including the unsigned families, 64-bit families and arrays.
+
+```dart
+await client.publishValue(kRoadSurfaceCondition, 4);     // uint8  -> ICE
+await client.publishValue('Vehicle.Diagnostics.DTCList', ['P0001']);
+await client.publishValue(kVehicleSpeed, 100);           // int widened to float
+```
+
+The **databroker**, not a vendored copy of the specification, is the authority.
+A vehicle serves the leaves it actually has plus whatever overlay its integrator
+added, and only the broker knows that set. The spec files vendored in `spec/`
+declare 177 un-instanced leaves — 12.8 % of the 1382-leaf expanded tree — so
+driving the encoding from them would have fixed an eighth of the problem while
+looking like a fix for all of it.
+
+- **`publishTyped(path, VssDataType, value)`** states the datatype explicitly
+  and skips the metadata lookup. It needs no protobuf import, and is the
+  supported way to control the encoding.
+- **`resolveDataType(path)`** returns the datatype the databroker declares.
+- **`VssDataType`, `ValueArm`, `wireArmFor`, `encodeVssValue`, `armOf`** are
+  exported: the datatype-to-field table is a public, tested artifact rather than
+  a branch buried in the client.
+- An `int` written to a `float` or `double` signal is widened. A `double`
+  written to an integer signal is **refused, not rounded**: a silently truncated
+  value on a safety signal cannot be told apart from a measured one.
+- Out-of-range integers raise **`VssTypeMismatch`**, naming the path, the VSS
+  datatype and the bound. The databroker's own rejection says only
+  `Value out of type bounds (id: 891)` — no path, no datatype, no limit.
+- `kuksa.val.v2.Value` has no timestamp field, so `timestamp` signals cannot be
+  published by any client of this API. That is now reported as a limit of the
+  wire format instead of failing as a type error.
+- An unknown path raises `UnknownSignalPathsException` rather than a raw
+  `NOT_FOUND`. Only `NOT_FOUND` is read as absence; every other gRPC failure is
+  rethrown, because a broker that is unreachable has told us nothing about the
+  signal.
+
+### Why the green test suite never caught it
+
+`test/kuksa_dart_sdk_test.dart` asserted that `kRoadSurfaceCondition` carries a
+**string**, while `signal_path.dart` documented it as *"uint8 enum (NOT a
+string)"* and the vendored spec agreed. **The suite encoded the wrong contract
+for the exact signal whose contract was being got wrong on the wire** — and it
+could not have failed on it either way, because it built the protobuf
+`Datapoint` by hand and then asserted what it had just built.
+
+- That case now uses a signal VSS really declares `string`, and a new case
+  asserts a `uint8` signal reads back through `uint32Value`.
+- `test/publish_wire_type_test.dart` publishes to a **real databroker** and
+  asserts the field the value came back on. It uses only API that 0.2.6 already
+  shipped, so it runs against the released version too: on 0.2.6 it fails with
+  `Wrong type provided (id: 891)`, and passes here.
+- `test/vss_datatype_test.dart` asserts the datatype-to-field table with
+  hard-coded expectations. Reading them back out of `wireArmFor` would be a
+  tautology that passes for any table, including a wrong one.
+- `test/vss_conformance_test.dart` gains a **datatype** axis. Its scanners
+  guarded units and ranges only — the axis on which 0.2.3 went wrong — and
+  watched `lib/` and `example/` but never `test/`, which is where this defect
+  lived. It now reads the datatype out of the vendored spec and refuses any
+  source under `lib/`, `example/` **or `test/`** that builds a
+  `RoadSurfaceCondition` datapoint from a string.
+- CI gains a job that runs the wire-type control against a real databroker
+  carrying VSS 6.1rc2. The stock databroker image ships VSS 6.0, whose metadata
+  does not contain `Vehicle.Exterior.RoadSurfaceCondition` at all, so the
+  control would have skipped — and a suite of skips reads as a pass.
+  `KUKSA_TEST_REQUIRE_BROKER=1` turns any skip in that file into a failure.
+
+### Upgrading
+
+Nothing in your dependency constraint: `0.2.7` is source-compatible with
+`0.2.6`. `publishValue`, `publishDatapoint`, `getValue`, `subscribe` and
+`listMetadata` keep their signatures.
+
+Two behaviour changes to know about:
+
+- `publishValue` now makes one metadata lookup the first time a given path is
+  published to, and none afterwards. Use `publishTyped` to avoid it entirely.
+- `publishValue` on a path the databroker does not know now raises
+  `UnknownSignalPathsException` instead of a raw gRPC `NOT_FOUND`.
+
 ## 0.2.6
 
 ### ⚠ If you are upgrading from 0.2.3 or earlier, read this first

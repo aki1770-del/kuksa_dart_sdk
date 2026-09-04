@@ -181,6 +181,7 @@ const _published023Defects = <String>[
 
 void main() {
   late Map<String, SpecSignal> spec;
+  late Map<String, SpecSignal> exterior;
   late SpecSignal friction;
 
   setUpAll(() {
@@ -188,6 +189,11 @@ void main() {
     if (!f.existsSync()) {
       fail('spec/ADAS.vspec is not vendored. Run tool/vss_sync.sh');
     }
+    final fe = File('spec/Exterior.vspec');
+    if (!fe.existsSync()) {
+      fail('spec/Exterior.vspec is not vendored. Run tool/vss_sync.sh');
+    }
+    exterior = parseVspec(fe.readAsStringSync(), prefix: 'Vehicle.Exterior');
     spec = parseVspec(f.readAsStringSync(), prefix: 'Vehicle.ADAS');
     final f2 = spec['Vehicle.ADAS.ESC.RoadFriction.MostProbable'];
     if (f2 == null) {
@@ -293,6 +299,82 @@ void main() {
         reason: 'An absent friction reading is being replaced by a value that '
             'means FULL GRIP. Absence is not evidence of a safe road:\n'
             '${violations.map((v) => '  $v').join('\n')}',
+      );
+    });
+  });
+
+  group('a signal\'s DATATYPE, not only its range, must match the spec', () {
+    // The range guards above were built after 0.2.3 documented a percent
+    // signal as a fraction. The same class of defect then happened on the
+    // DATATYPE axis and nothing was watching it: Vehicle.Exterior.
+    // RoadSurfaceCondition is a uint8 enum, the package's own test suite
+    // asserted a string value for it, and publishValue could not write it at
+    // all. These cases read the datatype out of the vendored spec.
+
+    test('RoadSurfaceCondition is a uint8 enum in the vendored spec', () {
+      final s = exterior['Vehicle.Exterior.RoadSurfaceCondition'];
+      expect(s, isNotNull,
+          reason: 'the signal left the spec; do not document it from memory');
+      expect(s!.datatype, 'uint8',
+          reason: 'spec says: $s. If COVESA changed this datatype, the wire '
+              'mapping in lib/src/client/vss_datatype.dart and the docs in '
+              'signal_path.dart must be revisited before publishing.');
+    });
+
+    test('signal_path.dart documents RoadSurfaceCondition as the spec does',
+        () {
+      final s = exterior['Vehicle.Exterior.RoadSurfaceCondition']!;
+      final doc = _read('lib/src/client/signal_path.dart');
+      final block = doc.substring(
+          doc.indexOf('/// Fused road surface condition.'),
+          doc.indexOf('const String kRoadSurfaceCondition'));
+      expect(block, contains(s.datatype),
+          reason: 'the vendored spec declares ${s.datatype}; the constant is '
+              'documented as something else');
+      expect(block.toLowerCase(), isNot(contains('type: string')),
+          reason: 'RoadSurfaceCondition is a ${s.datatype} enum. Documenting '
+              'it as a string is the contract the 0.2.6 test suite encoded, '
+              'and it is why a wrong wire type could not fail a test.');
+    });
+
+    test('no source builds a RoadSurfaceCondition datapoint from a string', () {
+      // The founding defect, encoded exactly: a Datapoint constructed at
+      // path kRoadSurfaceCondition whose value was set with `..string = `.
+      // That lived in test/kuksa_dart_sdk_test.dart, so the scan MUST cover
+      // test/ — the range scanners above cover lib/ and example/ only, which
+      // is why nothing caught it.
+      final offenders = <String>[];
+      for (final dir in ['lib', 'example', 'test']) {
+        final d = Directory(dir);
+        if (!d.existsSync()) continue;
+        for (final f in d.listSync(recursive: true).whereType<File>().where(
+            (f) =>
+                f.path.endsWith('.dart') && !f.path.contains('/generated/'))) {
+          final lines = f.readAsStringSync().split('\n');
+          for (var i = 0; i < lines.length; i++) {
+            if (!lines[i].contains('kRoadSurfaceCondition')) continue;
+            // Look back a few lines: the value is built just above the
+            // Datapoint that carries the path.
+            final from = i - 4 < 0 ? 0 : i - 4;
+            for (var j = from; j <= i; j++) {
+              // A comment cannot construct a Datapoint. This is a structural
+              // exclusion, not a phrasing carve-out: the line is skipped
+              // because it is not code, never because of how it is worded.
+              if (lines[j].trimLeft().startsWith('//')) continue;
+              if (RegExp(r"\.\.string\s*=|Value\(string:").hasMatch(lines[j])) {
+                offenders.add('${f.path}:${j + 1}: ${lines[j].trim()}');
+              }
+            }
+          }
+        }
+      }
+      expect(
+        offenders,
+        isEmpty,
+        reason: 'Vehicle.Exterior.RoadSurfaceCondition is a uint8 enum. These '
+            'lines build it from a string, which is the contract the 0.2.6 '
+            'suite encoded and the reason a wrong wire type could not fail a '
+            'test:\n${offenders.map((o) => '  $o').join('\n')}',
       );
     });
   });

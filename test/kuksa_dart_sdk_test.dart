@@ -34,11 +34,35 @@ void main() {
     });
 
     test('stringValue returns correct value for string datapoint', () {
-      final value = pb.Value()..string = 'ICE';
+      // A signal VSS really does declare as `string`. This case used to be
+      // written against kRoadSurfaceCondition, which VSS declares `uint8` —
+      // so the suite taught the wrong contract for the one signal whose
+      // contract was being got wrong on the wire. It could never fail on it:
+      // the raw Datapoint is built here by hand, so the assertion only ever
+      // restated what this file already believed.
+      const roadIcingState = 'Vehicle.Safety.RoadIcingState';
+      final value = pb.Value()..string = 'BLACK_ICE';
+      final raw = pb.Datapoint()..value = value;
+      final dp = Datapoint(raw: raw, path: roadIcingState);
+      expect(dp.stringValue, equals('BLACK_ICE'));
+      expect(dp.type, DatapointType.string);
+    });
+
+    test('a uint8 enum signal reads back through uint32Value, not stringValue',
+        () {
+      // What a databroker actually returns for Vehicle.Exterior.
+      // RoadSurfaceCondition: 4 = ICE, in the uint32 field. See
+      // test/publish_wire_type_test.dart for the same contract proven against
+      // a real broker rather than a hand-built message.
+      final value = pb.Value()..uint32 = 4;
       final raw = pb.Datapoint()..value = value;
       final dp = Datapoint(raw: raw, path: kRoadSurfaceCondition);
-      expect(dp.stringValue, equals('ICE'));
-      expect(dp.type, DatapointType.string);
+      expect(dp.type, DatapointType.uint32);
+      expect(dp.uint32Value, 4);
+      expect(dp.stringValue, isNull,
+          reason: 'the signal is a uint8 enum, not a string');
+      expect(dp.int32Value, isNull,
+          reason: 'a uint8 arrives in the uint32 field, not int32');
     });
 
     test('floatValue returns null for non-float datapoint', () {
@@ -112,9 +136,20 @@ void main() {
 
     test('publishValue rejects unsupported Dart value type', () {
       final client = KuksaClient(host: 'localhost');
+      // Refused before any network call, so the caller is told what is wrong
+      // with the VALUE rather than that the client is not connected.
       expect(
         () => client.publishValue(kVehicleSpeed, DateTime.now()),
         throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('publishTyped needs no connection to reject an unwritable value', () {
+      final client = KuksaClient(host: 'localhost');
+      expect(
+        () =>
+            client.publishTyped(kRoadSurfaceCondition, VssDataType.uint8, 300),
+        throwsA(isA<VssTypeMismatch>()),
       );
     });
   });

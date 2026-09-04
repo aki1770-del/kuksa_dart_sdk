@@ -39,6 +39,51 @@ jobs:
       - name: README signal table is in sync with the vendored spec
         run: dart run tool/gen_signal_table.dart --check
 
+  wire-type-against-a-real-databroker:
+    # The wire-type control (test/publish_wire_type_test.dart) asserts what a
+    # real databroker accepts for a signal's declared VSS datatype. A mock
+    # cannot prove it: the contract under test is the broker's.
+    #
+    # The stock databroker image ships VSS 6.0, whose metadata does NOT contain
+    # Vehicle.Exterior.RoadSurfaceCondition, so the control would skip and a
+    # suite of skips reads as a pass. VSS 6.1rc2 is therefore mounted, and
+    # KUKSA_TEST_REQUIRE_BROKER=1 turns any skip in that file into a failure.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Fetch the VSS release the winter signals live in
+        run: |
+          curl -sfL -o /tmp/vss_6.1rc2.json \
+            https://github.com/COVESA/vehicle_signal_specification/releases/download/v6.1rc2/vss.json
+
+      - name: Start kuksa-databroker on that metadata
+        run: |
+          docker run -d --name databroker -p 55555:55555 \
+            -v /tmp/vss_6.1rc2.json:/app/vss.json:ro \
+            -e KUKSA_DATABROKER_METADATA_FILE=/app/vss.json \
+            ghcr.io/eclipse-kuksa/kuksa-databroker:latest --insecure
+          for i in $(seq 1 30); do
+            nc -z localhost 55555 && break
+            sleep 1
+          done
+          nc -z localhost 55555 || { docker logs databroker; exit 1; }
+
+      - run: dart pub get
+
+      - name: The wire type follows the signal, proven on the wire
+        env:
+          KUKSA_TEST_REQUIRE_BROKER: '1'
+        run: dart test test/publish_wire_type_test.dart test/subscribe_resilience_test.dart --reporter=expanded
+
+      - name: Remove the databroker
+        if: always()
+        run: docker rm -f databroker || true
+
   vss-upstream-drift:
     # Re-fetches the COVESA spec and diffs it against spec/. Fails loudly if
     # upstream changed a signal's datatype, unit, min or max — the situation in

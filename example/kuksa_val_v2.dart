@@ -25,6 +25,7 @@ void main() async {
     await getServerInfo(client);
     await getValue(client);
     await publishValue(client);
+    await publishNarrowInteger(client);
     await listMetadata(client);
     await subscribe(client);
   } finally {
@@ -49,9 +50,34 @@ Future<void> getValue(KuksaClient client) async {
 }
 
 /// Publishes (writes) a value for a signal.
+///
+/// The wire type follows the SIGNAL's declared VSS datatype, not the Dart type
+/// of the value: `Vehicle.Speed` is a `float`, so 100.34 goes out on the float
+/// field.
 Future<void> publishValue(KuksaClient client) async {
   await client.publishValue(_path, 100.34);
   print('[publishValue] $_path <- 100.34');
+}
+
+/// Publishes a narrow-integer signal.
+///
+/// `Vehicle.Exterior.RoadSurfaceCondition` is a `uint8` enum (4 = ICE), and
+/// `uint8` travels in the `uint32` field of `kuksa.val.v2.Value` — not `int32`.
+/// Passing a Dart `int` is enough; this package reads the datatype from the
+/// databroker and picks the field. Before 0.2.7 this call was impossible
+/// through the public API: every Dart `int` went out on `int32` and the
+/// databroker answered `Wrong type provided`.
+///
+/// Not every databroker serves this leaf, so an absent signal is reported
+/// rather than allowed to look like a failed write.
+Future<void> publishNarrowInteger(KuksaClient client) async {
+  const path = kRoadSurfaceCondition;
+  try {
+    await client.publishValue(path, 4);
+    print('[publishValue] $path <- 4 (ICE)');
+  } on UnknownSignalPathsException {
+    print('[publishValue] $path is not in this databroker\'s VSS — skipped');
+  }
 }
 
 /// Lists metadata for signals under a path prefix.
