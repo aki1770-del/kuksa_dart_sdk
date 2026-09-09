@@ -6,11 +6,15 @@ We filed [eclipse-kuksa/kuksa-databroker#230](https://github.com/eclipse-kuksa/k
 one unknown VSS path in a multi-path `Subscribe` fails the whole request with
 `NOT_FOUND`, so a road-condition subscription of six safety signals dies on the
 one leaf a deployment lacks — *"with no error surfaced to the user."* The
-maintainer's answer, in short: all-or-nothing is a design choice — *"the idea is
-to have databroker as `deterministic` and `non-surprising` as possible"* — and
-*"useful magic"* belongs in the client APIs; and *"I would expect the GRPC API to
-give you an error when not all subscriptions can be fullfileld \[sic]. **But I
-have not checked the code just now**."*
+maintainer's answer, in short: all-or-nothing is a design choice, because a
+caller asking for several signals *"knows what he is doing"*. His own words, quoted as
+he wrote them — spelling, spacing and punctuation left exactly as they are:
+
+> the idea is to have databroker as "deterministic" and "non-surprising" as possible, and thus not hide to many magic there. "Useful Magic" should  go to API abstractions.
+
+> I would expect the GRPC API to give you an error when not all subscriptions can be fullfileld. But I have not checked the code  just now
+
+His second sentence ends there, without a full stop, and the typo is his.
 
 He is right. Measured against databroker 0.7.1: the broker answered `NOT_FOUND`,
 this package passed it through unchanged as a `GrpcError`, and the silence was
