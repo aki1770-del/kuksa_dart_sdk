@@ -1,3 +1,87 @@
+## Unreleased
+
+### The gRPC half of this SDK, audited — and a subscription that goes quiet can now say so
+
+`kuksa_dart_sdk` is a databroker client and a **gRPC** client, and only the
+first half had ever been audited. Read against gRPC's own published client
+guidance and against the `grpc` 5.1.0 source, four things were wrong, and three
+of them end the same way: a consumer keeps showing a road-surface reading that
+nobody is measuring any more.
+
+Everything here is **additive**. Every new parameter defaults to the 0.2.8
+behaviour, so a `^0.2.x` consumer that changes nothing gets the client it
+already had.
+
+- **`KuksaClient` could not reach its own channel.** `connect()` passed
+  `ChannelOptions(credentials: ...)` and nothing else, so **8 of that class's 9
+  settings were unreachable** — an IVI integrator could not set a keepalive, a
+  connect timeout or an idle timeout at any price. Added `keepAlive`,
+  `connectTimeout` and `idleTimeout`; unset, each keeps grpc-dart's own default
+  (`idleTimeout` still resolves to grpc's `defaultIdleTimeout`, not to "none").
+
+- **No call had a deadline.** grpc.io is unambiguous — *"By default, gRPC does
+  not set a deadline which means it is possible for a client to end up waiting
+  for a response effectively forever."* Measured: against a frozen databroker,
+  `getValue` never returned. Added `callTimeout`, applied to **unary calls
+  only**. It is deliberately withheld from `subscribe`: grpc-dart arms the
+  deadline as a wall-clock `Timer` at call creation
+  (`grpc-5.1.0 lib/src/client/call.dart:226`), so a deadline on a server stream
+  kills a healthy feed at a fixed age. RSE proved that on the wire the same day
+  — `DEADLINE_EXCEEDED` at 3.00 s on a working subscription — and proved the
+  broker plays no part in it. A test now guards the split.
+
+- **A subscription the broker ENDED closed silently.** Measured against
+  databroker 0.7.1: a graceful shutdown — a restart, an update, a
+  `systemctl stop` — ends the RPC normally, so the stream completed with
+  `onDone` and **no error**. The `await for` in our own README simply left its
+  loop; nothing threw, nothing logged, and the last values a consumer painted
+  stayed painted. (A hard kill was always loud; the routine case was not.)
+  Added `subscribe(errorOnEnd: true)`, which delivers it as
+  `SubscriptionEndedException` — on the error path, where a safety consumer
+  already looks.
+
+- **A broker that FREEZES was never detected at all.** With the process frozen
+  and the socket left open — a partition, a pulled cable — nothing arrived,
+  nothing errored and nothing ended, indefinitely. **HTTP/2 keepalive does not
+  rescue this**, measured: a client with `pingInterval: 3 s, timeout: 2 s`
+  behaved identically to one with none over 30 s. (The ping-timeout action is
+  `transport.finish()`, and `finish()` awaits `_streams.done`, which the open
+  stream of a frozen peer never satisfies.) Added
+  `subscribe(stallTimeout: ...)` — an inactivity watchdog reset by every
+  update — which reported the same frozen broker in 5.06 s.
+  `SubscriptionStalledException` says the signals are **unmeasured**, never
+  that they are unsafe: a signal that has not changed is silent too.
+
+- **`dispose()` could hang forever.** It calls `channel.shutdown()`, which by
+  the gRPC contract lets *"RPCs already in progress ... complete"* — so against
+  a broker answering nothing, teardown never returned. On a headunit that is a
+  navigation stack that will not shut down. Added `dispose(timeout: ...)`,
+  which falls back to `terminate()`.
+
+`stallTimeout` and `errorOnEnd` are **not** substitutes for one another, and a
+test says so: a watchdog measures silence *between* messages, and a broker that
+ends the stream produces closure rather than silence, so the watchdog never
+fires. Cover both failures by setting both.
+
+Deliberately **not** added, because `grpc` 5.1.0 cannot honour them and a
+recommendation the runtime ignores is worse than none: retry and hedging
+policy, wait-for-ready, service-config parsing, and receive-message size
+limits — none exist in the package (grepped at source). In particular there is
+no automatic retry, and that is left as it is on purpose: RSE measured that
+`UNAVAILABLE` reaches a v2 client essentially only from `ProviderNotAvailable`,
+so a stock "retry UNAVAILABLE" policy would retry actuations and nothing else,
+where a late retry can re-apply an older target over a newer one.
+
+### Two quotations that were not verbatim
+
+- Our own issue was quoted as *"with no error surfaced to the user."* — cut
+  mid-sentence with a full stop added inside the quotation marks. It reads
+  *"with no error surfaced to the user and no partial data."* Corrected.
+- The proto's wildcard note was rendered twice, once with a full stop and once
+  with nothing. Read at source
+  (`eclipse-kuksa/kuksa-proto`, `kuksa/val/v2/val.proto:294-295`), it ends with
+  an exclamation mark — so **neither rendering was verbatim**. Both corrected.
+
 ## 0.2.8
 
 ### The signal a vehicle lacks is now named. Our issue said it was silent; the silence was ours
@@ -5,7 +89,8 @@
 We filed [eclipse-kuksa/kuksa-databroker#230](https://github.com/eclipse-kuksa/kuksa-databroker/issues/230):
 one unknown VSS path in a multi-path `Subscribe` fails the whole request with
 `NOT_FOUND`, so a road-condition subscription of six safety signals dies on the
-one leaf a deployment lacks — *"with no error surfaced to the user."* The
+one leaf a deployment lacks — *"with no error surfaced to the user and no
+partial data."* The
 maintainer's answer, in short: all-or-nothing is a design choice, because a
 caller asking for several signals *"knows what he is doing"*. His own words, quoted as
 he wrote them — spelling, spacing and punctuation left exactly as they are:
@@ -52,7 +137,7 @@ check means one thing in both SDKs:
   `Vehicle.ADAS` all answer `NOT_FOUND` in `Subscribe`/`GetValues` (measured) —
   so the match runs client-side over one `ListMetadata` call bounded by the
   pattern's literal prefix, and never relies on the broker's wildcard support,
-  which its own proto says *"may be removed in a future release."* `*` is one
+  which its own proto says *"may be removed in a future release!"* `*` is one
   segment, `**` any number; a pattern with no wildcard is a branch.
   `SignalPattern` carries the rule; `VssEntryType` filters by sensor, actuator
   or attribute without a protobuf import.

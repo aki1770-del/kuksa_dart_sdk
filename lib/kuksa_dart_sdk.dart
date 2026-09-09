@@ -48,6 +48,12 @@
 library kuksa_dart_sdk;
 
 export 'src/client/kuksa_client.dart';
+
+// Channel tuning is stated with grpc-dart's own value types. Re-exported so an
+// integrator tuning a vehicle client does not have to add a direct dependency
+// on package:grpc to name a keepalive interval.
+export 'package:grpc/grpc.dart'
+    show ClientKeepAliveOptions, defaultIdleTimeout, GrpcError, StatusCode;
 export 'src/client/datapoint.dart';
 export 'src/client/road_friction.dart';
 export 'src/client/signal_path.dart';

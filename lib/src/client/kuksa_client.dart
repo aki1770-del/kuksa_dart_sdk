@@ -22,6 +22,8 @@
 /// ```
 library;
 
+import 'dart:async';
+
 import 'package:grpc/grpc.dart';
 
 import '../generated/kuksa/val/v2/val.pbgrpc.dart' as pb_grpc;
@@ -48,6 +50,99 @@ class KuksaClient {
   /// Leave null for insecure connections.
   final List<int>? rootCertificates;
 
+  /// Transport keepalive for the channel this client opens.
+  ///
+  /// grpc-dart's [ClientKeepAliveOptions.pingInterval] defaults to `null`, so
+  /// no HTTP/2 pings are ever sent. Until 0.2.9 this client passed
+  /// `ChannelOptions(credentials: ...)` and nothing else, so 8 of that class's
+  /// 9 settings — keepalive among them — could not be reached at all. They can
+  /// now.
+  ///
+  /// ```dart
+  /// KuksaClient(
+  ///   host: 'localhost',
+  ///   keepAlive: const ClientKeepAliveOptions(
+  ///     pingInterval: Duration(seconds: 10),
+  ///     timeout: Duration(seconds: 5),
+  ///     permitWithoutCalls: true,
+  ///   ),
+  /// );
+  /// ```
+  ///
+  /// ## ⚠ It does NOT rescue a subscription from a frozen broker. Measured.
+  ///
+  /// The obvious hope for this setting is the dangerous case: a databroker
+  /// that stops answering *without closing the socket* — a frozen process, a
+  /// pulled cable, a partitioned link — which leaves a subscription open and
+  /// mute forever. **Measured on 2026-09-09 against databroker 0.7.1, frozen
+  /// mid-subscription, grpc-dart 5.1.0: a client with
+  /// `pingInterval: 3 s, timeout: 2 s, permitWithoutCalls: true` behaved
+  /// identically to one with no keepalive at all — no data, no error, no end,
+  /// for the 30 s the A/B ran.**
+  ///
+  /// Read at source afterwards, consistent with that result: the ping-timeout
+  /// action is `transport.finish()`
+  /// (`grpc-5.1.0 lib/src/client/http2_connection.dart:121`), and `finish()`
+  /// awaits `_streams.done` (`http2-2.3.1 lib/src/connection.dart:286`) —
+  /// which the open stream of a frozen peer never satisfies. Separately,
+  /// `ClientKeepAlive.onTransportStarted()`, the only code path that honours
+  /// `permitWithoutCalls` at start-up, is declared at
+  /// `client_keepalive.dart:218` and is called nowhere in the package.
+  ///
+  /// ## Set it anyway — but for the link, not for the stream
+  ///
+  /// Measured by RSE against databroker 0.7.1 on 2026-09-09 (their run, not
+  /// ours): the **server** configures no keepalive, no idle timeout and no
+  /// max-connection-age, and an idle connection was still usable at 300 s with
+  /// zero GOAWAY. The client is therefore the only party that can ever notice
+  /// a link that has died in a tunnel, and 30–60 s is their recommendation for
+  /// portability across middleboxes. They also measured 88 pings in 60 s at
+  /// 1 s intervals with `permitWithoutCalls` and saw **0 GOAWAY and 0
+  /// `ENHANCE_YOUR_CALM`** against this broker.
+  ///
+  /// So: set this for the link, and use [KuksaClient.subscribe]'s
+  /// `stallTimeout` for a broker that has stopped speaking. This package will
+  /// not tell an integrator that a knob protects a driver when we measured
+  /// that it does not.
+  ///
+  /// Null keeps grpc-dart's own default, which sends no pings.
+  final ClientKeepAliveOptions? keepAlive;
+
+  /// Maximum time to wait for the TCP/TLS connection to be established.
+  ///
+  /// Null keeps grpc-dart's default, which is no connect timeout at all.
+  /// [connect] itself performs no I/O — the channel dials lazily on the first
+  /// RPC — so this bounds that first call, not [connect].
+  final Duration? connectTimeout;
+
+  /// How long an idle channel is kept open before it is shut down.
+  ///
+  /// Null keeps grpc-dart's own `defaultIdleTimeout` (5 minutes) exactly as
+  /// before; it is not disabled.
+  final Duration? idleTimeout;
+
+  /// Deadline applied to every **unary** call this client makes.
+  ///
+  /// gRPC's own guidance is unambiguous — grpc.io/docs/guides/deadlines, read
+  /// 2026-09-09: *"By default, gRPC does not set a deadline which means it is
+  /// possible for a client to end up waiting for a response effectively
+  /// forever."* and *"you should always explicitly set a realistic deadline in
+  /// your clients"*. Until this field existed there was no supported way to
+  /// set one: this client passed a bare `CallOptions()` and every
+  /// [getValue], [getValues], [publishValue], [listMetadata] and
+  /// [getServerInfo] could wait forever. Measured against a frozen databroker
+  /// 0.7.1 on 2026-09-09, they do.
+  ///
+  /// **It is deliberately NOT applied to [subscribe].** grpc-dart implements
+  /// the deadline as a wall-clock `Timer` started when the call is created
+  /// (`grpc-5.1.0 lib/src/client/call.dart:226`), so a deadline on a
+  /// server-streaming subscription would kill a perfectly healthy feed the
+  /// moment it expired. Liveness for a long-lived stream is [keepAlive]'s job,
+  /// not a deadline's.
+  ///
+  /// Null is the pre-0.2.9 behaviour: no deadline, wait forever.
+  final Duration? callTimeout;
+
   ClientChannel? _channel;
   pb_grpc.VALClient? _stub;
 
@@ -63,6 +158,10 @@ class KuksaClient {
     this.port = 55555,
     this.jwtToken,
     this.rootCertificates,
+    this.keepAlive,
+    this.connectTimeout,
+    this.idleTimeout,
+    this.callTimeout,
   });
 
   /// Opens the gRPC channel and initialises the stub.
@@ -81,18 +180,35 @@ class KuksaClient {
     _channel = ClientChannel(
       host,
       port: port,
-      options: ChannelOptions(credentials: credentials),
+      options: ChannelOptions(
+        credentials: credentials,
+        // Each of these keeps grpc-dart's own default when the caller passed
+        // nothing, so a client written against 0.2.8 opens exactly the channel
+        // it opened before. `defaultIdleTimeout` is grpc's own constant, not a
+        // copy of it — a copy would drift.
+        keepAlive: keepAlive ?? const ClientKeepAliveOptions(),
+        connectTimeout: connectTimeout,
+        idleTimeout: idleTimeout ?? defaultIdleTimeout,
+      ),
     );
     _stub = pb_grpc.VALClient(_channel!);
   }
 
-  /// Returns the call options with auth metadata if a JWT token is set.
-  CallOptions get _callOptions {
-    if (jwtToken == null) return CallOptions();
-    return CallOptions(
-      metadata: {'authorization': 'Bearer $jwtToken'},
-    );
-  }
+  /// Auth metadata for every call, without a deadline.
+  Map<String, String> get _authMetadata =>
+      jwtToken == null ? const {} : {'authorization': 'Bearer $jwtToken'};
+
+  /// Options for a **unary** call: auth metadata plus [callTimeout].
+  CallOptions get _callOptions =>
+      CallOptions(metadata: _authMetadata, timeout: callTimeout);
+
+  /// Options for a **server-streaming** call: auth metadata only.
+  ///
+  /// [callTimeout] is withheld on purpose. grpc-dart arms the deadline as a
+  /// wall-clock timer at call creation (`call.dart:226`), so applying it here
+  /// would end a healthy subscription at a fixed age. A stream's liveness is
+  /// [keepAlive]'s job.
+  CallOptions get _streamCallOptions => CallOptions(metadata: _authMetadata);
 
   pb_grpc.VALClient get _client {
     if (_stub == null) {
@@ -161,8 +277,19 @@ class KuksaClient {
   /// signals that changed in that update cycle — not all subscribed signals.
   /// The first emission contains the current values of all paths.
   ///
-  /// The stream is closed when the gRPC server stream ends or the channel
-  /// is disconnected. Reconnect and re-subscribe as needed.
+  /// ## A subscription that ENDS looks exactly like one reporting nothing new
+  ///
+  /// When the databroker closes the stream — a graceful shutdown, a routine
+  /// restart, an update — this stream **completes normally**. Measured against
+  /// databroker 0.7.1 on 2026-09-09: `onDone`, no error. The `await for` above
+  /// exits its loop and a `try`/`catch` around it never fires, so a consumer
+  /// keeps whatever it painted last. On a road-condition feed that is a clear
+  /// road nobody measured. Pass [errorOnEnd] to receive it as an error
+  /// instead, and set [KuksaClient.keepAlive] so a broker that freezes without
+  /// closing the socket is detected at all — without pings, nothing ends the
+  /// stream and nothing is delivered, indefinitely.
+  ///
+  /// A hard kill of the broker is already loud: that surfaces as a `GrpcError`.
   ///
   /// Example — snow safety monitoring:
   /// ```dart
@@ -235,28 +362,93 @@ class KuksaClient {
     /// Treat those signals as unmeasured — not as safe. A missing road-friction
     /// leaf is [RoadGrip.unknown], never a clear road.
     void Function(List<String> unknownPaths)? onUnknownPaths,
+
+    /// End the stream with [SubscriptionEndedException] instead of completing
+    /// quietly when the databroker closes it.
+    ///
+    /// A subscription that ends is not a subscription reporting a clear road,
+    /// but by default the two are indistinguishable. Measured against
+    /// databroker 0.7.1 on 2026-09-09: a broker stopped gracefully — a
+    /// routine restart, a `systemctl stop`, an update — ends the RPC with a
+    /// normal gRPC completion, so this stream closes with `onDone` and **no
+    /// error**. `await for` exits its loop, `try`/`catch` never fires, and
+    /// whatever the consumer painted last stays on screen for the rest of the
+    /// drive. (A hard kill is different: that arrives as an error.)
+    ///
+    /// Set this to `true` and the same event arrives where a safety consumer
+    /// already looks — the error path.
+    ///
+    /// Cancelling the subscription does **not** raise it; only the broker
+    /// ending the stream does.
+    ///
+    /// Defaults to `false`, which is the pre-0.2.9 behaviour.
+    bool errorOnEnd = false,
+
+    /// End the stream with [SubscriptionStalledException] when no update has
+    /// arrived for this long.
+    ///
+    /// This is the countermeasure for the failure gRPC's own keepalive was
+    /// expected to cover and — measured on this stack — does not: a broker
+    /// frozen without closing the socket. See [KuksaClient.keepAlive] for that
+    /// measurement. At the transport layer nothing ends the call; at this
+    /// layer we can at least stop claiming the data is current.
+    ///
+    /// The window is measured from the **last update received**, not from the
+    /// start of the subscription, and it is reset by every update.
+    ///
+    /// **Choose it against the signal, not against the clock.** A stall is not
+    /// proof the broker died — `kuksa.val.v2` only emits on change, so a
+    /// parked vehicle's `Vehicle.Speed` is legitimately still. Use this for
+    /// signals you have measured to tick, and size the window well above their
+    /// observed quiet period. Set too tight it cries wolf; the resulting
+    /// exception says *unmeasured*, never *unsafe*, for exactly that reason.
+    ///
+    /// It does **not** replace [errorOnEnd], and [errorOnEnd] does not
+    /// replace it. Measured 2026-09-09 (`test/grpc_canon_test.dart`): a
+    /// watchdog measures silence *between* messages, and a broker that ENDS
+    /// the stream produces closure rather than silence — `Stream.timeout`
+    /// completes with it and never fires. A consumer that wants both failures
+    /// covered sets both.
+    ///
+    /// Null is the pre-0.2.9 behaviour: wait indefinitely.
+    Duration? stallTimeout,
   }) {
     // Read the stub here so a client that was never connected still fails
     // synchronously at the call, as it did before the body became a generator.
     final stub = _client;
     if (!skipUnknownPaths) {
-      return _subscribeExact(stub, paths, bufferSize);
+      return _subscribeExact(stub, paths, bufferSize, errorOnEnd, stallTimeout);
     }
-    return _subscribeKnown(stub, paths, bufferSize, onUnknownPaths);
+    return _subscribeKnown(
+        stub, paths, bufferSize, onUnknownPaths, errorOnEnd, stallTimeout);
   }
 
   Stream<Map<String, Datapoint>> _subscribeExact(
     pb_grpc.VALClient stub,
     List<String> paths,
     int bufferSize,
+    bool errorOnEnd,
+    Duration? stallTimeout,
   ) async* {
     final request = pb.SubscribeRequest(
       signalPaths: paths,
       bufferSize: bufferSize,
     );
+    Stream<pb.SubscribeResponse> responses =
+        stub.subscribe(request, options: _streamCallOptions);
+    if (stallTimeout != null) {
+      // Stream.timeout restarts its clock on every event, so this is "time
+      // since the last update", which is the question a consumer is asking.
+      responses = responses.timeout(
+        stallTimeout,
+        onTimeout: (sink) {
+          sink.addError(SubscriptionStalledException(paths, stallTimeout));
+          sink.close();
+        },
+      );
+    }
     try {
-      await for (final response
-          in stub.subscribe(request, options: _callOptions)) {
+      await for (final response in responses) {
         yield {
           for (final entry in response.entries.entries)
             entry.key: Datapoint(raw: entry.value, path: entry.key),
@@ -269,6 +461,9 @@ class KuksaClient {
       if (e.code != StatusCode.notFound) rethrow;
       throw await _unknownPathsError(paths, e);
     }
+    // Reached only when the broker ended the stream itself. A consumer that
+    // cancelled never resumes this generator, so cancelling raises nothing.
+    if (errorOnEnd) throw SubscriptionEndedException(paths);
   }
 
   Stream<Map<String, Datapoint>> _subscribeKnown(
@@ -276,6 +471,8 @@ class KuksaClient {
     List<String> paths,
     int bufferSize,
     void Function(List<String>)? onUnknownPaths,
+    bool errorOnEnd,
+    Duration? stallTimeout,
   ) async* {
     final known = await resolveKnownPaths(paths);
     final unknown = paths.where((p) => !known.contains(p)).toList();
@@ -285,7 +482,8 @@ class KuksaClient {
       throw UnknownSignalPathsException(unknown, requested: paths);
     }
 
-    yield* _subscribeExact(stub, known, bufferSize);
+    yield* _subscribeExact(
+        stub, known, bufferSize, errorOnEnd, stallTimeout);
   }
 
   /// Returns the subset of [paths] this databroker knows, in the given order.
@@ -587,7 +785,7 @@ class KuksaClient {
   /// and databroker 0.7.1 ignores it (`root: Vehicle, filter: Vehicle.Speed`
   /// returns all 1 263 entries under `Vehicle`), as its own proto comment
   /// admits. Wildcards in `root` work today, and the same comment says they
-  /// *"may be removed in a future release"* — prefer [expand], which matches
+  /// *"may be removed in a future release!"* — prefer [expand], which matches
   /// client-side and does not depend on them.
   ///
   /// Throws `GrpcError` `NOT_FOUND` when the root branch does not exist.
@@ -605,11 +803,43 @@ class KuksaClient {
   }
 
   /// Closes the gRPC channel and releases all resources.
-  Future<void> dispose() async {
-    await _channel?.shutdown();
+  ///
+  /// ## This can hang, and [timeout] is how you stop it
+  ///
+  /// grpc-dart draws the line the gRPC spec draws: `shutdown()` lets
+  /// *"RPCs already in progress ... complete"* while `terminate()`
+  /// *"RPCs already in progress will be terminated"*
+  /// (`grpc-5.1.0 lib/src/client/channel.dart:28-38`). This method has always
+  /// called `shutdown()` — so against a databroker that has stopped answering
+  /// without closing the socket, an in-flight call never completes and
+  /// **`dispose()` never returns**. Measured twice on 2026-09-09 against a
+  /// frozen databroker 0.7.1: a teardown that waited indefinitely.
+  ///
+  /// On an IVI that is a headunit that will not shut its navigation down.
+  ///
+  /// Pass [timeout] to wait that long for a graceful shutdown and then
+  /// terminate instead. The client's own state is released either way, so a
+  /// second [dispose] is a no-op.
+  ///
+  /// ```dart
+  /// await client.dispose(timeout: const Duration(seconds: 2));
+  /// ```
+  ///
+  /// Null is the pre-0.2.9 behaviour: wait for the graceful shutdown, however
+  /// long it takes.
+  Future<void> dispose({Duration? timeout}) async {
+    final channel = _channel;
     _channel = null;
     _stub = null;
     _dataTypeCache.clear();
+    if (channel == null) return;
+    if (timeout == null) return channel.shutdown();
+    try {
+      await channel.shutdown().timeout(timeout);
+    } on TimeoutException {
+      // The graceful path is blocked on a call the broker will never answer.
+      await channel.terminate();
+    }
   }
 }
 
@@ -691,4 +921,70 @@ class UnknownSignalPathsException implements Exception {
         'Check missingSignals()/hasSignals() before the call, or subscribe '
         'with skipUnknownPaths: true and read onUnknownPaths.$hint';
   }
+}
+
+/// Thrown by [KuksaClient.subscribe] with `errorOnEnd: true` when the
+/// databroker ended the subscription.
+///
+/// It exists because the alternative is silence. A `kuksa.val.v2` subscription
+/// closed by the broker completes the Dart stream normally — measured against
+/// databroker 0.7.1 on 2026-09-09, a graceful shutdown arrives as `onDone`
+/// with no error — and a consumer written as `await for (...) { ... }` simply
+/// leaves the loop. Nothing throws, nothing logs, and the last values it
+/// rendered stay rendered.
+///
+/// For a road-condition feed that is the failure that matters: a driver is
+/// shown a surface reading that was true some minutes ago and is now nobody's
+/// measurement. Absence of new data is not a clear road.
+///
+/// Raised only when the broker ends the stream. Cancelling the subscription
+/// does not raise it.
+class SubscriptionEndedException implements Exception {
+  /// The paths the ended subscription covered.
+  final List<String> paths;
+
+  const SubscriptionEndedException(this.paths);
+
+  @override
+  String toString() =>
+      'SubscriptionEndedException: the databroker ended the subscription to '
+      '${paths.join(', ')} without an error — this is what a graceful broker '
+      'shutdown or restart looks like. No further values will arrive. Treat '
+      'the signals as unmeasured from this moment, not as last known good, '
+      'and re-subscribe; a stale reading shown as current is the failure this '
+      'exception exists to prevent.';
+}
+
+/// Thrown by [KuksaClient.subscribe] with a `stallTimeout` when no update has
+/// arrived for that long.
+///
+/// A stalled subscription is the failure that hides best. The broker has not
+/// closed the stream, so nothing completes; it has not errored, so nothing
+/// throws; it simply stops speaking. Measured on 2026-09-09 against databroker
+/// 0.7.1 frozen mid-subscription, on grpc-dart 5.1.0: no data, no error and no
+/// end for 30 s, with and without HTTP/2 keepalive configured. A consumer in
+/// that state is not receiving reassurance — it is receiving nothing, and
+/// showing the last thing it drew.
+///
+/// **This says the signals are UNMEASURED. It does not say they are unsafe,
+/// and it is not proof the broker is gone** — `kuksa.val.v2` emits on change,
+/// so a genuinely constant signal is silent too. Surface it to the driver the
+/// way any absent reading is surfaced: as not known.
+class SubscriptionStalledException implements Exception {
+  /// The paths that went quiet.
+  final List<String> paths;
+
+  /// The window that elapsed with no update.
+  final Duration stallTimeout;
+
+  const SubscriptionStalledException(this.paths, this.stallTimeout);
+
+  @override
+  String toString() =>
+      'SubscriptionStalledException: no update for '
+      '${paths.join(', ')} in ${stallTimeout.inMilliseconds} ms. The '
+      'databroker has neither ended the subscription nor reported an error, '
+      'which is what a frozen or partitioned broker looks like from here — '
+      'but a signal that simply has not changed looks the same. Treat these '
+      'signals as UNMEASURED, not as unsafe and not as last known good.';
 }
