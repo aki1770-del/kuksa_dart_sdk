@@ -269,6 +269,54 @@ routing decisions in real-time based on road surface conditions.
 
 ---
 
+## Third-party dependencies and the Eclipse Dash input
+
+`DEPENDENCIES` is **generated, never hand-written**, and this section exists so
+anyone — including the Eclipse Dash tooling maintainers — can reproduce it.
+
+**The Dash input (one coordinate per line):**
+
+```sh
+tool/gen_dependencies.sh --coordinates
+```
+
+**The annotated manifest committed as `DEPENDENCIES`:**
+
+```sh
+tool/gen_dependencies.sh > DEPENDENCIES
+```
+
+The coordinate line is the whole of it — a `dart pub deps` walk reshaped into
+Dash's `pub/pub.dev/-/<name>/<version>` form:
+
+```sh
+dart pub deps --no-dev --style=list \
+  | sed -n 's|^- \([a-zA-Z0-9_]*\) \(.*\)$|pub/pub.dev/-/\1/\2|p' \
+  | sort
+```
+
+⚑ **`--no-dev` is load-bearing, not tidiness.** This is a library: its dev
+dependencies (test, lints, and their transitives) are never distributed and must
+not appear in an IP review.
+
+⚑ **Do not filter `dart pub deps --json` by `kind == "transitive"` instead.** A
+*dev* dependency's transitives are also `"transitive"`, so that filter silently
+admits packages you do not ship. Use `--no-dev`, or walk the graph from
+`root.directDependencies`.
+
+⚑ **Versions resolve live, so a clean checkout may not reproduce the committed
+file byte for byte.** `pubspec.lock` is deliberately not committed — a library
+must not pin its consumers — so `dart pub deps` reports whatever each range
+resolves to on the day you run it. Measured while writing this: a pristine
+checkout resolved `clock` and `stack_trace` one patch version ahead of what
+`DEPENDENCIES` records. The coordinate list is regenerated on every run and is
+what Dash consumes; treat the committed annotated file as a snapshot and
+regenerate before relying on it.
+
+`tool/spdx_from_cache.py` and `tool/render_dependencies.py` add the licence
+column from the local pub cache; the coordinate command above is sufficient on
+its own if you only need Dash input.
+
 ## Contributing
 
 Issues and PRs welcome. Please file an issue before a large change.
