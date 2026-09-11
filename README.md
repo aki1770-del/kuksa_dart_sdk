@@ -215,6 +215,19 @@ in [`spec/`](spec/)** by `tool/gen_signal_table.dart`, and CI fails if it drifts
 `Vehicle.ADAS.ESC.RoadFriction.MostProbable` is a **percent** value (0–100), **not** a 0.0–1.0 fraction: an ESC on black ice reports about `18.0`. Classify it with `RoadFriction.classify` — see [Road friction](#road-friction).
 <!-- END GENERATED SIGNAL TABLE -->
 
+> **`kRoadSurfaceCondition` is not on every databroker.** Measured against the
+> published spec, each with a working control in the same file: **absent from VSS
+> 6.0** — the current final release — and **present from 6.1rc2 onward**. A broker
+> built on 6.0 answers `NOT_FOUND` for it, and on an all-or-nothing `subscribe`
+> that one path takes every other signal in the request down with it.
+>
+> It is deliberately **not** in `kSnowSafetySignals`, so that list stays resolvable
+> on a 6.0 broker. If you use it, reach for `subscribeAvailable` — it will tell you
+> the signal is not on this vehicle instead of failing your whole subscription.
+>
+> This note lives outside the generated table above because the table is emitted
+> from the vendored spec, which cannot know which *release* first carried a node.
+
 ---
 
 ## Publishing values

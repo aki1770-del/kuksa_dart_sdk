@@ -54,21 +54,20 @@ void main() {
   // `dart test` prints "All tests passed!" for a file that verified nothing.
   // An absent verdict reads exactly like a pass, so it must not be allowed to.
   //
-  // Set KUKSA_TEST_BROKER=required (CI, release prep) to make the absence
+  // KUKSA_TEST_REQUIRE_BROKER=1 -- the name CI already sets, and the same name
   // fail instead of skip:
   //   docker run -d -p 55555:55555 \
   //     ghcr.io/eclipse-kuksa/kuksa-databroker:0.7.1 --insecure
   test('the broker-backed cases actually ran', () {
     if (brokerUp) return;
-    final required =
-        Platform.environment['KUKSA_TEST_BROKER'] == 'required';
+    final required = Platform.environment['KUKSA_TEST_REQUIRE_BROKER'] == '1';
     if (required) {
-      fail('KUKSA_TEST_BROKER=required but $noBroker. Every resilience case '
+      fail('KUKSA_TEST_REQUIRE_BROKER=1 but $noBroker. Every resilience case '
           'in this file was skipped; this run proves nothing about whether '
           'one absent signal still blinds a consumer.');
     }
     markTestSkipped('$noBroker — the resilience cases in this file were NOT '
-        'verified by this run. Set KUKSA_TEST_BROKER=required to make that '
+        'verified by this run. Set KUKSA_TEST_REQUIRE_BROKER=1 to make that '
         'a failure.');
   });
 

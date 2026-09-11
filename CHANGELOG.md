@@ -1,3 +1,62 @@
+## 0.2.9
+
+### One call now returns both the stream and the signals your vehicle does not have
+
+`subscribe(skipUnknownPaths: true)` has been able to survive a missing signal since
+`0.2.6`. It has one flaw you cannot see from the call site: `onUnknownPaths` is
+optional, so a caller who omits it gets a silent partial subscription — and the
+sentence in that method's own documentation, *"Absent paths are never silently
+dropped"*, is false for exactly that caller. The default is still `false` for this
+reason, and it is not changing here.
+
+**`subscribeAvailable(paths)` returns a `SignalSubscription`: the stream **and**
+`notOnThisVehicle`, together.** There is no callback to forget and no second call to
+skip, because the return type now carries the fact instead of a side channel:
+
+```dart
+final sub = await client.subscribeAvailable(kSnowSafetySignals);
+if (sub.notOnThisVehicle.isNotEmpty) {
+  showDegraded('not on this vehicle: ${sub.notOnThisVehicle.join(", ")}');
+}
+await for (final update in sub.updates) { ... }
+```
+
+If the databroker knows **none** of the requested paths it throws
+`UnknownSignalPathsException` naming every one; an empty request is an
+`ArgumentError`, which keeps a caller's mistake and a vehicle's fact apart.
+
+`subscribe()` is untouched. This release adds an API and changes no behaviour of any
+existing call, which is why it is a patch.
+
+### ⚑ `kRoadSurfaceCondition` is not in VSS 6.0, and this package documented it as if it were
+
+The most-referenced constant we ship — the fused surface enum whose value 4 is ICE —
+resolves to `Vehicle.Exterior.RoadSurfaceCondition`. Measured against the spec, with
+a working control in the same file both times: **absent from VSS 6.0** (the current
+final release, 2026-01-16) and **present from 6.1rc2** onward.
+
+So a databroker built on 6.0 answers `NOT_FOUND` for it — and on an all-or-nothing
+`subscribe` that one path takes every other signal in the request down with it. Our
+own README taught it in a usage example without saying so. The signal table now says
+so, at the row where a reader meets it.
+
+It is **not** in `kSnowSafetySignals` and is not being added: that list must stay
+resolvable on a 6.0 broker. **If you use it, guard it** — `subscribeAvailable` will
+tell you it is not there instead of failing your whole subscription.
+
+Root cause, named rather than quietly patched: `tool/vss_sync.sh` vendors the spec
+from `master` by default, so this package's conformance tests validate against a
+tree no shipped broker has. That is unfixed here.
+
+### The resilience tests were passing without running
+
+`test/subscribe_resilience_test.dart` gated four of its six cases on a live broker,
+and with no broker present `dart test` printed `All tests passed!` having verified
+nothing — the suite baseline carried 32 such skips, all reported as a pass.
+`KUKSA_TEST_REQUIRE_BROKER=1` — the same name the other broker-gated files and CI
+already use — now turns that absent verdict into a failure. Run without it, the file
+states in plain words that the broker-backed cases did not run.
+
 ## 0.2.8
 
 ### The signal a vehicle lacks is now named. Our issue said it was silent; the silence was ours

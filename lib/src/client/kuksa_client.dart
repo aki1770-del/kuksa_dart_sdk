@@ -340,8 +340,8 @@ class KuksaClient {
     int bufferSize = 0,
   }) async {
     if (paths.isEmpty) {
-      throw ArgumentError.value(paths, 'paths',
-          'subscribeAvailable needs at least one signal path');
+      throw ArgumentError.value(
+          paths, 'paths', 'subscribeAvailable needs at least one signal path');
     }
     final stub = _client;
     final available = await resolveKnownPaths(paths);
@@ -739,7 +739,6 @@ class SignalSubscription {
       : 'SignalSubscription(${available.length} of ${requested.length} '
           'signals; not on this vehicle: ${notOnThisVehicle.join(', ')})';
 }
-
 
 /// Thrown when the databroker knows a path but declares no datatype for it.
 class UndeclaredSignalDataTypeException implements Exception {
