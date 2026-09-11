@@ -25,8 +25,13 @@
 /// final dp = await client.getValue(kRoadFrictionMostProbable);
 /// print(RoadFriction.classifyDatapoint(dp)); // e.g. "18.0% → icy"
 ///
-/// // Continuous subscription — all snow-safety signals
-/// await for (final update in client.subscribe(kSnowSafetySignals)) {
+/// // Continuous subscription. `subscribe` is all-or-nothing: one leaf this
+/// // vehicle lacks delivers nothing at all. `subscribeAvailable` streams what
+/// // it has and names what it does not — you cannot miss the verdict.
+/// final sub = await client.subscribeAvailable(kSnowSafetySignals);
+/// if (sub.isDegraded) tellTheDriverTheseAreUnmeasured(sub.notOnThisVehicle);
+///
+/// await for (final update in sub.updates) {
 ///   final road = RoadFriction.classifyDatapoint(update[kRoadFrictionMostProbable]);
 ///   final tcsActive = update[kTcsIsEngaged]?.boolValue ?? false;
 ///

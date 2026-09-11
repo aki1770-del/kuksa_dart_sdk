@@ -98,7 +98,14 @@ const String kVehicleSpeed = 'Vehicle.Speed';
 /// 4 ICE, 5 SLUSH, 6 WET_ICE, 7 LOOSE_GRAVEL. Per VSS, UNKNOWN (0) "shall be
 /// used when the system cannot assess the road surface condition" — treat it
 /// as absence of knowledge, never as a clear road.
-/// Availability still depends on the databroker exposing a provider for it.
+/// **Not in VSS release 6.0.** It is on COVESA `master`, which is what
+/// `tool/vss_sync.sh` vendors into `spec/` — but databroker 0.7.1 loads
+/// `vss_release_6.0.json`, where this path does not exist (measured
+/// 2026-09-11). A stock broker answers `NOT_FOUND` for it, and because
+/// `kuksa.val.v2` subscribes all-or-nothing that takes down every other
+/// signal in the same request. This is why it is **not** in
+/// [kSnowSafetySignals]; use [KuksaClient.subscribeAvailable] if you add it.
+/// Availability also depends on the databroker exposing a provider for it.
 /// VSS: Vehicle.Exterior.RoadSurfaceCondition
 const String kRoadSurfaceCondition = 'Vehicle.Exterior.RoadSurfaceCondition';
 

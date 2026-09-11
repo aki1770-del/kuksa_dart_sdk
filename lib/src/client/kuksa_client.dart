@@ -13,7 +13,13 @@
 /// final client = KuksaClient(host: 'localhost', port: 55555);
 /// await client.connect();
 ///
-/// await for (final update in client.subscribe(kSnowSafetySignals)) {
+/// // `subscribe` is all-or-nothing — one leaf this car lacks delivers nothing.
+/// // [KuksaClient.subscribeAvailable] streams what it has and names what it
+/// // does not, in one call.
+/// final sub = await client.subscribeAvailable(kSnowSafetySignals);
+/// if (sub.isDegraded) tellTheDriverTheseAreUnmeasured(sub.notOnThisVehicle);
+///
+/// await for (final update in sub.updates) {
 ///   // Classify — never compare the raw value yourself. RoadFriction is on the
 ///   // VSS percent scale (0-100), and absence must stay absent.
 ///   final road = RoadFriction.classifyDatapoint(update[kRoadFrictionMostProbable]);
@@ -201,11 +207,17 @@ class KuksaClient {
   /// for six safety signals loses all six on the one the vehicle lacks. Two
   /// ways not to go blind:
   ///
+  /// - **[subscribeAvailable]** does both in one call and is the shortest
+  ///   safe shape: it returns the stream *and* the names of the signals this
+  ///   vehicle lacks, so there is no callback to forget and no second call to
+  ///   skip. Prefer it.
   /// - **Decide before subscribing.** [missingSignals] (or [hasSignals]) says
   ///   which of [paths] this databroker lacks, so the app can choose to work,
   ///   to work degraded, or to refuse — and tell the driver which.
   /// - **Or set [skipUnknownPaths]** to subscribe to the signals this
-  ///   databroker actually has and be *told* which ones it lacks.
+  ///   databroker actually has and be *told* which ones it lacks. The report
+  ///   is optional here: a caller that passes no [onUnknownPaths] gets a
+  ///   partial stream and no word of what is missing.
   ///
   /// Without either, the stream errors with [UnknownSignalPathsException]
   /// **naming the unknown paths** (this package resolves them; the broker
@@ -286,6 +298,66 @@ class KuksaClient {
     }
 
     yield* _subscribeExact(stub, known, bufferSize);
+  }
+
+  /// Subscribes to the signals this vehicle actually has, and tells you which
+  /// it does not — in one call, with the answer in your hand.
+  ///
+  /// This is [subscribe] for the case that is always true in a real fleet:
+  /// **you do not know what this vehicle exposes.** `kuksa.val.v2` subscribes
+  /// all-or-nothing, so asking for ten safety signals on a car that lacks one
+  /// delivers nothing at all — not nine signals, nothing. The two existing
+  /// ways out both leave a way to go quiet: [missingSignals] is a separate
+  /// call you can forget, and `skipUnknownPaths: true` reports absences to an
+  /// `onUnknownPaths` callback you can decline to pass.
+  ///
+  /// Here you cannot. The verdict and the stream arrive together:
+  ///
+  /// ```dart
+  /// final sub = await client.subscribeAvailable(kSnowSafetySignals);
+  ///
+  /// // Absence is not a clear road. Say so, before the first update.
+  /// if (sub.isDegraded) tellTheDriverTheseAreUnmeasured(sub.notOnThisVehicle);
+  ///
+  /// await for (final update in sub.updates) { /* ... */ }
+  /// ```
+  ///
+  /// Throws [UnknownSignalPathsException], naming every path, when the
+  /// databroker knows **none** of them — a vehicle that cannot measure the
+  /// road at all is a fact the driver is owed, not an empty stream. Throws
+  /// [ArgumentError] for an empty [paths], which is a caller mistake and not
+  /// a vehicle fact; the two are kept apart on purpose.
+  ///
+  /// Costs one `ListMetadata` round-trip per path before the stream opens
+  /// (see [resolveKnownPaths]) — which is why it is a separate call you opt
+  /// into, and not the behaviour of [subscribe].
+  ///
+  /// Any gRPC failure other than `NOT_FOUND` is rethrown: a broker that is
+  /// unreachable has not told us a signal is absent.
+  Future<SignalSubscription> subscribeAvailable(
+    List<String> paths, {
+    /// Server-side buffer size per signal (0 = keep only latest value).
+    int bufferSize = 0,
+  }) async {
+    if (paths.isEmpty) {
+      throw ArgumentError.value(paths, 'paths',
+          'subscribeAvailable needs at least one signal path');
+    }
+    final stub = _client;
+    final available = await resolveKnownPaths(paths);
+    final absent = [
+      for (final p in paths)
+        if (!available.contains(p)) p,
+    ];
+    if (available.isEmpty) {
+      throw UnknownSignalPathsException(absent, requested: paths);
+    }
+    return SignalSubscription._(
+      requested: List.unmodifiable(paths),
+      available: List.unmodifiable(available),
+      notOnThisVehicle: List.unmodifiable(absent),
+      updates: _subscribeExact(stub, available, bufferSize),
+    );
   }
 
   /// Returns the subset of [paths] this databroker knows, in the given order.
@@ -612,6 +684,62 @@ class KuksaClient {
     _dataTypeCache.clear();
   }
 }
+
+/// A live subscription, together with what this vehicle could not provide.
+///
+/// Returned by [KuksaClient.subscribeAvailable]. It exists because a
+/// `Stream<Map<String, Datapoint>>` cannot express "these three signals are
+/// not on this vehicle" — so every consumer had to reconstruct that fact out
+/// of band, and a consumer that forgot showed the driver a road it had never
+/// measured. Holding the stream here means holding the verdict too.
+///
+/// A signal in [notOnThisVehicle] is **unmeasured, not safe**. Absent road
+/// friction is [RoadGrip.unknown]; it is never a clear road.
+class SignalSubscription {
+  const SignalSubscription._({
+    required this.requested,
+    required this.available,
+    required this.notOnThisVehicle,
+    required this.updates,
+  });
+
+  /// Every path asked for, in the order given.
+  final List<String> requested;
+
+  /// The subset of [requested] this databroker knows, and [updates] carries.
+  ///
+  /// Never empty: [KuksaClient.subscribeAvailable] throws
+  /// [UnknownSignalPathsException] rather than return a subscription to
+  /// nothing.
+  final List<String> available;
+
+  /// The subset of [requested] this databroker does not know.
+  ///
+  /// Report these to the driver as unmeasured. Do not substitute a default:
+  /// a missing friction reading defaulted to full grip is a measurement
+  /// fabricated out of a sensor that is not there.
+  final List<String> notOnThisVehicle;
+
+  /// Updates for [available], with the semantics of [KuksaClient.subscribe]:
+  /// single-subscription, each map carrying only the signals that changed,
+  /// the first carrying the current value of each.
+  final Stream<Map<String, Datapoint>> updates;
+
+  /// True when the vehicle provided every signal asked for.
+  bool get isComplete => notOnThisVehicle.isEmpty;
+
+  /// True when the vehicle is missing at least one — the stream is live, but
+  /// the picture it paints is partial, and the driver should be told which
+  /// part is missing rather than shown a gap that looks like good news.
+  bool get isDegraded => notOnThisVehicle.isNotEmpty;
+
+  @override
+  String toString() => isComplete
+      ? 'SignalSubscription(${available.length} signals, complete)'
+      : 'SignalSubscription(${available.length} of ${requested.length} '
+          'signals; not on this vehicle: ${notOnThisVehicle.join(', ')})';
+}
+
 
 /// Thrown when the databroker knows a path but declares no datatype for it.
 class UndeclaredSignalDataTypeException implements Exception {

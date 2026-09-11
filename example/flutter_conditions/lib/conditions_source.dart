@@ -51,29 +51,24 @@ class KuksaConditionsSource implements ConditionsSource {
 
     // Decide BEFORE subscribing. kuksa.val.v2 Subscribe is all-or-nothing, by
     // design: one leaf this vehicle lacks fails the whole request, and the
-    // broker's NOT_FOUND names no path. So ask which of the signals this
-    // databroker has, and choose — all: work; some: work degraded, with the
-    // absent ones shown as "not on this vehicle" rather than silently null;
-    // none: fail with the signals NAMED, never with an empty stream.
-    final missing = (await client.missingSignals(kSnowSafetySignals)).toList();
-    final have = [
-      for (final p in kSnowSafetySignals)
-        if (!missing.contains(p)) p,
-    ];
-    if (have.isEmpty) {
-      throw UnknownSignalPathsException(missing, requested: kSnowSafetySignals);
-    }
+    // broker's NOT_FOUND names no path. `subscribeAvailable` does that deciding
+    // and hands back both halves of the answer — the stream of what this car
+    // has, and the names of what it has not. It throws, naming every path,
+    // when the car has none of them; it never returns an empty stream.
+    final sub = await client.subscribeAvailable(kSnowSafetySignals);
 
     // `await for` over the SDK stream means: cancelling OUR subscription
     // cancels this loop, which cancels the underlying gRPC stream — the
     // correct teardown the AGL examples were missing. When the server stream
     // ends, the loop completes and our stream emits `onDone`.
-    await for (final update in client.subscribe(have)) {
+    await for (final update in sub.updates) {
       _snapshot.addAll(update);
       // Hand out a defensive copy so a downstream holder can't mutate ours.
+      // The absent signals ride along on every snapshot: they are UNMEASURED,
+      // and the card must say so rather than leave a gap that reads as good news.
       yield DrivingConditions.fromSignals(
         Map<String, Datapoint>.of(_snapshot),
-        notOnThisVehicle: missing,
+        notOnThisVehicle: sub.notOnThisVehicle,
       );
     }
   }
