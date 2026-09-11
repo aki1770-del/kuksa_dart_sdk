@@ -54,8 +54,9 @@ void main() {
   // `dart test` prints "All tests passed!" for a file that verified nothing.
   // An absent verdict reads exactly like a pass, so it must not be allowed to.
   //
-  // KUKSA_TEST_REQUIRE_BROKER=1 -- the name CI already sets, and the same name
-  // fail instead of skip:
+  // Set KUKSA_TEST_REQUIRE_BROKER=1 -- the name CI already sets, and the same
+  // name the other two broker-gated files read -- to make an absent broker a
+  // failure instead of a skip. Stand one up with:
   //   docker run -d -p 55555:55555 \
   //     ghcr.io/eclipse-kuksa/kuksa-databroker:0.7.1 --insecure
   test('the broker-backed cases actually ran', () {
