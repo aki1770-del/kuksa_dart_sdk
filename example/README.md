@@ -10,9 +10,13 @@ docker run --rm -it -p 55555:55555 \
   ghcr.io/eclipse-kuksa/kuksa-databroker:latest --insecure
 ```
 
-Then run the vendor-neutral sample:
+Then run the vendor-neutral sample. The examples ship in the repository, not in
+the published package — `dart pub add kuksa_dart_sdk` gives you `lib/`, not
+`example/` — so run them from a clone:
 
 ```sh
+git clone https://github.com/aki1770-del/kuksa_dart_sdk.git
+cd kuksa_dart_sdk && dart pub get
 dart run example/kuksa_val_v2.dart
 ```
 
@@ -55,6 +59,8 @@ it connects to a databroker on an IVI headunit and reacts to road-condition
 signals in real time — a one-shot read of road friction, then a continuous
 subscription that surfaces snow-safety conditions for driver-assisting
 navigation.
+
+From the same clone:
 
 ```sh
 dart run example/snow_safety_monitor.dart

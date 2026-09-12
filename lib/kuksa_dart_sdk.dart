@@ -23,13 +23,16 @@
 ///
 /// // One-shot read
 /// final dp = await client.getValue(kRoadFrictionMostProbable);
-/// print(RoadFriction.classifyDatapoint(dp)); // e.g. "18.0% → icy"
+/// print(RoadFriction.classifyDatapoint(dp));
+/// // e.g. "RoadFrictionReading(18.0% → icy)"
 ///
 /// // Continuous subscription. `subscribe` is all-or-nothing: one leaf this
 /// // vehicle lacks delivers nothing at all. `subscribeAvailable` streams what
 /// // it has and names what it does not — you cannot miss the verdict.
 /// final sub = await client.subscribeAvailable(kSnowSafetySignals);
-/// if (sub.isDegraded) tellTheDriverTheseAreUnmeasured(sub.notOnThisVehicle);
+/// if (sub.isDegraded) {
+///   print('not on this vehicle: ${sub.notOnThisVehicle.join(', ')}');
+/// }
 ///
 /// await for (final update in sub.updates) {
 ///   final road = RoadFriction.classifyDatapoint(update[kRoadFrictionMostProbable]);
@@ -38,13 +41,17 @@
 ///   switch (road.grip) {
 ///     case RoadGrip.icy:
 ///       // Measured ice — activate snow routing mode.
+///       print('ICE at ${road.percent}% friction');
 ///     case RoadGrip.reduced:
 ///       // Measured reduced grip.
+///       print('reduced grip at ${road.percent}%');
 ///     case RoadGrip.grip:
-///       if (tcsActive) { /* traction loss despite a good reading */ }
+///       // Measured normal grip.
+///       if (tcsActive) print('traction loss despite a good reading');
 ///     case RoadGrip.unknown:
 ///       // No reading. Tell the driver conditions are UNKNOWN.
 ///       // Do not assume the road is clear.
+///       print('road conditions UNKNOWN — not measured');
 ///   }
 /// }
 ///

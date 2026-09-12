@@ -56,13 +56,20 @@ await for (final update in sub.updates) {
   final tcsActive = update[kTcsIsEngaged]?.boolValue ?? false;
 
   switch (road.grip) {
-    case RoadGrip.icy:      // measured ice — activate snow routing mode
-    case RoadGrip.reduced:  // measured reduced grip
-    case RoadGrip.grip:     // measured normal grip
-      if (tcsActive) { /* traction loss despite a good reading */ }
-    case RoadGrip.unknown:  // NO reading (absent signal, or out-of-spec value)
+    case RoadGrip.icy:
+      // Measured ice — activate snow routing mode.
+      print('ICE at ${road.percent}% friction');
+    case RoadGrip.reduced:
+      // Measured reduced grip.
+      print('reduced grip at ${road.percent}%');
+    case RoadGrip.grip:
+      // Measured normal grip.
+      if (tcsActive) print('traction loss despite a good reading');
+    case RoadGrip.unknown:
+      // NO reading: absent signal, or a value outside the VSS range.
       // Show the driver that conditions are UNKNOWN.
       // Do not assume the road is clear.
+      print('road conditions UNKNOWN — not measured');
   }
 }
 
@@ -86,6 +93,7 @@ has and hands you the names of what it does not, together — you cannot hold
 the stream without holding the verdict.
 
 ```dart
+// oracle:placeholders client
 final sub = await client.subscribeAvailable(kSnowSafetySignals);
 
 sub.available;         // subscribed — never empty
@@ -104,6 +112,7 @@ does.
 Or ask and choose by hand — work, work degraded, or refuse:
 
 ```dart
+// oracle:placeholders client
 final missing = await client.missingSignals(kSnowSafetySignals); // Set<String>
 if (missing.isNotEmpty) {
   // Tell the driver these readings are UNMEASURED. Absence is not a clear road.
@@ -138,6 +147,7 @@ databroker 0.7.1). Turn a pattern into leaves explicitly, from the broker's own
 metadata:
 
 ```dart
+// oracle:placeholders client
 final tyres = await client.expand('Vehicle.**.Tire.Pressure');
 final esc = await client.expand('Vehicle.ADAS.ESC');              // a branch
 final sensors = await client.expand('Vehicle.ADAS.**',
@@ -235,6 +245,7 @@ in [`spec/`](spec/)** by `tool/gen_signal_table.dart`, and CI fails if it drifts
 `publishValue` encodes for the **signal**, not for the Dart value:
 
 ```dart
+// oracle:placeholders client
 await client.publishValue(kVehicleSpeed, 100.34);        // float
 await client.publishValue(kRoadSurfaceCondition, 4);     // uint8 enum -> ICE
 await client.publishValue('Vehicle.Diagnostics.DTCList', ['P0001']);
@@ -266,6 +277,7 @@ To skip the metadata lookup — a provider writing one signal in a loop, or a te
 that must not depend on broker metadata — state the datatype yourself:
 
 ```dart
+// oracle:placeholders client
 await client.publishTyped(kRoadSurfaceCondition, VssDataType.uint8, 4);
 ```
 
@@ -286,12 +298,29 @@ guessed at.
 - A running [kuksa-databroker](https://github.com/eclipse-kuksa/kuksa-databroker) v0.5+
 - Dart SDK ≥ 3.0.0
 
-For development on embedded Linux IVI (e.g., Raspberry Pi 4, Renesas R-Car):
+Start one locally — for development on embedded Linux IVI (e.g., Raspberry Pi 4,
+Renesas R-Car) or on a workstation:
 
 ```bash
-# Start databroker in mock mode (no real vehicle required)
-docker run --rm -p 55555:55555 ghcr.io/eclipse-kuksa/kuksa-databroker:latest --mock-datapoints
+docker run --rm -p 55555:55555 \
+  ghcr.io/eclipse-kuksa/kuksa-databroker:latest --insecure
 ```
+
+**There is no mock mode.** The databroker has no option that invents vehicle
+data — `--help` on the image above lists none — so what this gives you is a
+broker holding the stock VSS metadata with nothing publishing into it. A read
+comes back with no value, and this package reports that as
+`RoadFrictionReading(unknown)` rather than as a clear road. That is the package
+working, not failing: to see real readings, something must publish — a vehicle,
+or a provider you write.
+
+That stock metadata is VSS 6.0, which declares 11 of the 12 signals in the table
+below. `Vehicle.Exterior.RoadSurfaceCondition` is **not** in it, so
+`missingSignals` reports that one absent until you start the broker on newer
+metadata (`--vss <file>`).
+
+Runnable examples live in the repository, not in the published package: clone it
+and see [`example/README.md`](example/README.md).
 
 ---
 

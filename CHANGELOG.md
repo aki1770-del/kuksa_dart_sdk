@@ -1,3 +1,64 @@
+## Unreleased
+
+### The first command under "Prerequisites" has never worked, in any release
+
+README.md told a stranger to start the databroker in **mock mode**:
+
+```
+docker run ... ghcr.io/eclipse-kuksa/kuksa-databroker:latest --mock-datapoints
+```
+
+There is no mock mode. The databroker has never had that flag — `--help` on the
+image the README itself names declares sixteen options and none of them is it —
+so the command answers `error: unexpected argument '--mock-datapoints' found`
+and exits 2. It is in **all 12 published versions** — 0.1.0 of 2026-04-12
+through 0.2.9, 153 days — measured by downloading each archive from pub.dev and
+reading its README, because this repository's git history does not contain the
+published trees. It sat under the one heading a reader trusts first, while
+`example/README.md` carried a correct `--insecure` invocation three directories
+away. The fix is not a flag rename: the sentence *"no real vehicle
+required"* was the false part. The section now starts the broker the way that
+works and says plainly what you get — stock VSS 6.0 metadata with nothing
+publishing into it, so a read comes back `RoadFrictionReading(unknown)`, which is
+this package working rather than failing.
+
+### A documented `switch` sent measured ice into the branch written for good grip
+
+The Quick Start switch in README.md, and its twin in the dartdoc rendered on
+pub.dev, gave `case RoadGrip.icy:` and `case RoadGrip.reduced:` **empty bodies**.
+An empty case falls through in Dart, so both landed in the `RoadGrip.grip` branch
+— the one commented *"traction loss despite a good reading"* — while the comments
+above them presented three independent branches. `RoadGrip.unknown` had no
+statement at all, so the branch whose whole purpose is to tell the driver the
+road was not measured did nothing. On a package that exists to stop ice reading
+as clear road, the example read in the unsafe direction. Every branch now has a
+body.
+
+Also corrected: the library doc comment claimed
+`RoadFriction.classifyDatapoint(dp)` prints `"18.0% → icy"` when it prints
+`"RoadFrictionReading(18.0% → icy)"`; two dartdoc snippets contained `{ ... }`,
+which is not valid Dart; and both READMEs now say that the examples live in the
+repository, not in the published package, so `dart pub add` then
+`dart run example/...` cannot be followed as written.
+
+### Two looms, because eight releases of green checks caught none of this
+
+`tool/gen_signal_table.dart --check` and `tool/vss_sync.sh` already guard the
+README's signal table against the vendored spec. Neither reads a shell command or
+a Dart snippet, and no CI step ever executed an example. Two checks now do:
+
+- **`tool/doc_commands_check.dart`** (new — nothing here did this) runs every
+  shell command in every README against the real thing it names. A `docker run`
+  command's flags are checked against that image's own `--help`. A command shape
+  it cannot verify is a failure, never a silent pass. `--self-test` rebuilds the
+  `--mock-datapoints` line and asserts it is rejected, so the proof stays
+  re-runnable.
+- **Loom L35, the snippet oracle**, already existed in SNGNav and had never been
+  pointed at this package. It is now fetched and run in CI — not vendored, so the
+  two copies cannot drift — and its own `--self-test` runs first. It halted here
+  on 34 undefined symbols; all 34 are now either real code or declared as
+  reader-supplied.
+
 ## 0.2.9
 
 ### One call now returns both the stream and the signals your vehicle does not have

@@ -39,6 +39,21 @@ jobs:
       - name: README signal table is in sync with the vendored spec
         run: dart run tool/gen_signal_table.dart --check
 
+      # Loom L35, the snippet oracle. It compiles every ```dart block in
+      # README.md and in the dartdoc rendered on pub.dev against this package's
+      # own API, so a snippet cannot name a symbol that does not exist. It is
+      # not vendored: it lives once, in SNGNav, and is fetched so the two
+      # copies cannot drift. Its own --self-test runs FIRST, because an oracle
+      # we did not watch fail is an oracle we are trusting on its word.
+      - name: Fetch the snippet oracle (single source of truth)
+        run: |
+          curl -sfL -o /tmp/snippet_oracle.py \
+            https://raw.githubusercontent.com/aki1770-del/SNGNav/main/tool/snippet_oracle.py
+      - name: The snippet oracle still fails on a broken snippet
+        run: python3 /tmp/snippet_oracle.py --self-test
+      - name: Every published snippet compiles against the real API
+        run: python3 /tmp/snippet_oracle.py .
+
   wire-type-against-a-real-databroker:
     # The wire-type control (test/publish_wire_type_test.dart) asserts what a
     # real databroker accepts for a signal's declared VSS datatype. A mock
@@ -74,6 +89,18 @@ jobs:
           nc -z localhost 55555 || { docker logs databroker; exit 1; }
 
       - run: dart pub get
+
+      # Every shell command in our documentation, run against the real thing it
+      # names. It sits in THIS job because the databroker image is already
+      # local here — the check costs no second pull. README.md told strangers
+      # to start the broker with --mock-datapoints in all 12 published
+      # versions, 0.1.0 (2026-04-12) through 0.2.9 — 153 days, measured by
+      # reading each archive off pub.dev. There is no mock mode, the command
+      # exits 2, and nothing we owned ever ran it. --self-test rebuilds it.
+      - name: The command checker still fails on the command that founded it
+        run: dart run tool/doc_commands_check.dart --self-test
+      - name: Every documented command is true
+        run: dart run tool/doc_commands_check.dart --list
 
       - name: Proven on the wire — wire type, resilience, and signal availability
         env:

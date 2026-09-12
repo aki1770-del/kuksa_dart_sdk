@@ -10,6 +10,7 @@
 /// Typical usage on an embedded IVI headunit (insecure local connection):
 ///
 /// ```dart
+/// // oracle:placeholders tellTheDriverTheseAreUnmeasured, activateSnowRoutingMode
 /// final client = KuksaClient(host: 'localhost', port: 55555);
 /// await client.connect();
 ///
@@ -172,6 +173,8 @@ class KuksaClient {
   ///
   /// Example — snow safety monitoring:
   /// ```dart
+  /// // oracle:placeholders client, navigationBloc, SnowConditionsDetected
+  /// // oracle:placeholders RoadSurfaceUnknown
   /// await for (final update in client.subscribe(kSnowSafetySignals)) {
   ///   final road = RoadFriction.classifyDatapoint(update[kRoadFrictionMostProbable]);
   ///   final tcs = update[kTcsIsEngaged]?.boolValue;
@@ -314,6 +317,7 @@ class KuksaClient {
   /// Here you cannot. The verdict and the stream arrive together:
   ///
   /// ```dart
+  /// // oracle:placeholders client, tellTheDriverTheseAreUnmeasured
   /// final sub = await client.subscribeAvailable(kSnowSafetySignals);
   ///
   /// // Absence is not a clear road. Say so, before the first update.
@@ -404,12 +408,13 @@ class KuksaClient {
   /// unmeasured, or to refuse — before the subscription fails.
   ///
   /// ```dart
+  /// // oracle:placeholders client, tellTheDriverTheseAreUnmeasured
   /// final missing = await client.missingSignals(kSnowSafetySignals);
   /// if (missing.isNotEmpty) tellTheDriverTheseAreUnmeasured(missing);
   /// final have = [
   ///   for (final p in kSnowSafetySignals) if (!missing.contains(p)) p,
   /// ];
-  /// await for (final update in client.subscribe(have)) { ... }
+  /// await for (final update in client.subscribe(have)) { /* ... */ }
   /// ```
   Future<Set<String>> missingSignals(List<String> paths) async {
     final known = await resolveKnownPaths(paths);
@@ -435,11 +440,12 @@ class KuksaClient {
   /// pattern is expanded here, explicitly, from the broker's own metadata:
   ///
   /// ```dart
+  /// // oracle:placeholders client
   /// final tyres = await client.expand('Vehicle.**.Tire.Pressure');
   /// final esc = await client.expand('Vehicle.ADAS.ESC');        // a branch
   /// final sensors = await client.expand('Vehicle.ADAS.**',
   ///     entryType: VssEntryType.sensor);
-  /// await for (final update in client.subscribe(tyres)) { ... }
+  /// await for (final update in client.subscribe(tyres)) { /* ... */ }
   /// ```
   ///
   /// `*` matches one path segment, `**` any number; a pattern with no
@@ -581,6 +587,7 @@ class KuksaClient {
   ///
   /// Example:
   /// ```dart
+  /// // oracle:placeholders client
   /// await client.publishValue('Vehicle.Speed', 100.34);            // float
   /// await client.publishValue(kRoadSurfaceCondition, 4);           // uint8
   /// await client.publishValue('Vehicle.Diagnostics.DTCList', ['P0001']);
@@ -618,6 +625,7 @@ class KuksaClient {
   /// `Value` field the databroker accepts for it.
   ///
   /// ```dart
+  /// // oracle:placeholders client
   /// await client.publishTyped(kRoadSurfaceCondition, VssDataType.uint8, 4);
   /// ```
   ///
