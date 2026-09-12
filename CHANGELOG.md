@@ -1,4 +1,29 @@
-## Unreleased
+## 0.2.10
+
+### ⚑ The repair for the defect below shipped a NEW false sentence, caught before publish
+
+The first draft of this release said runnable examples *"live in the repository, not in
+the published package"*. **That is false against our own tarball** — `example/` ships in
+**all 12 published versions**, and the `flutter_conditions/` app — with its own
+`pubspec.yaml`, `lib/` and `test/` — ships in **6 of 12, first appearing in 0.2.4**.
+
+⚑ **The sentence you are reading is itself a correction.** Its first draft said every
+published version ships `example/` *including* the Flutter app. The "including"
+distributes, and it is false for half the releases — a **third** false sentence, written
+while correcting the second. Caught by the independent attester before publish, after two
+earlier reviews had cleared the surrounding text. The census was measured on one archive
+and asserted of twelve.
+
+**What is true, and what the docs now say:** the examples **do** ship, and they land in
+your pub cache rather than your project directory — which is the real reason a relative
+`dart run example/...` from your own project will not resolve. Cloning is the simplest way
+to run them, and that advice was never wrong; only its stated reason was.
+
+**The structural finding is worth more than the defect.** The command checker added below
+cannot see this class — it resolves paths against the repository tree, where `example/`
+always exists, and never asks what the published archive contains. 11 of its 15 commands
+sit in that delegated class. A documentation loom with a blind spot exactly where this
+release's own prose was false.
 
 ### The first command under "Prerequisites" has never worked, in any release
 

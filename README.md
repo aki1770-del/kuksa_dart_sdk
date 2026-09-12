@@ -319,8 +319,11 @@ below. `Vehicle.Exterior.RoadSurfaceCondition` is **not** in it, so
 `missingSignals` reports that one absent until you start the broker on newer
 metadata (`--vss <file>`).
 
-Runnable examples live in the repository, not in the published package: clone it
-and see [`example/README.md`](example/README.md).
+Runnable examples **do ship in the published package**, under `example/` — including
+the `flutter_conditions/` app with its own `pubspec.yaml`, `lib/` and `test/`. They
+land in your **pub cache**, not in your project directory, so `dart run
+example/kuksa_val_v2.dart` from your own project will not find them. Cloning is the
+simplest way to run them; see [`example/README.md`](example/README.md).
 
 ---
 

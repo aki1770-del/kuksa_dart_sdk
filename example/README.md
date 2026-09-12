@@ -10,9 +10,11 @@ docker run --rm -it -p 55555:55555 \
   ghcr.io/eclipse-kuksa/kuksa-databroker:latest --insecure
 ```
 
-Then run the vendor-neutral sample. The examples ship in the repository, not in
-the published package — `dart pub add kuksa_dart_sdk` gives you `lib/`, not
-`example/` — so run them from a clone:
+Then run the vendor-neutral sample. These examples **are** in the published package
+(`dart pub add kuksa_dart_sdk` fetches `example/` along with `lib/`), but they land
+in your pub cache rather than your project directory, so a relative `dart run
+example/...` from your own project will not resolve. Cloning is the simplest way to
+run them:
 
 ```sh
 git clone https://github.com/aki1770-del/kuksa_dart_sdk.git
