@@ -94,7 +94,7 @@ jobs:
       # names. It sits in THIS job because the databroker image is already
       # local here — the check costs no second pull. README.md told strangers
       # to start the broker with --mock-datapoints in all 12 published
-      # versions, 0.1.0 (2026-04-12) through 0.2.9 — 153 days, measured by
+      # versions, 0.1.0 (2026-04-12) through 0.2.9 (2026-09-11), measured by
       # reading each archive off pub.dev. There is no mock mode, the command
       # exits 2, and nothing we owned ever ran it. --self-test rebuilds it.
       - name: The command checker still fails on the command that founded it

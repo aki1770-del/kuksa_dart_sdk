@@ -36,12 +36,12 @@ docker run ... ghcr.io/eclipse-kuksa/kuksa-databroker:latest --mock-datapoints
 There is no mock mode. The databroker has never had that flag — `--help` on the
 image the README itself names declares sixteen options and none of them is it —
 so the command answers `error: unexpected argument '--mock-datapoints' found`
-and exits 2. It is in **all 12 published versions** — 0.1.0 of 2026-04-12
-through 0.2.9, 153 days — measured by downloading each archive from pub.dev and
+and exits 2. It is in **all 12 published versions** — 0.1.0 of 2026-04-12 through 0.2.9 of
+2026-09-11 — measured by downloading each archive from pub.dev and
 reading its README, because this repository's git history does not contain the
 published trees. It sat under the one heading a reader trusts first, while
-`example/README.md` carried a correct `--insecure` invocation three directories
-away. The fix is not a flag rename: the sentence *"no real vehicle
+`example/README.md` carried a correct `--insecure` invocation one directory
+below. The fix is not a flag rename: the sentence *"no real vehicle
 required"* was the false part. The section now starts the broker the way that
 works and says plainly what you get — stock VSS 6.0 metadata with nothing
 publishing into it, so a read comes back `RoadFrictionReading(unknown)`, which is
@@ -62,15 +62,30 @@ body.
 Also corrected: the library doc comment claimed
 `RoadFriction.classifyDatapoint(dp)` prints `"18.0% → icy"` when it prints
 `"RoadFrictionReading(18.0% → icy)"`; two dartdoc snippets contained `{ ... }`,
-which is not valid Dart; and both READMEs now say that the examples live in the
-repository, not in the published package, so `dart pub add` then
-`dart run example/...` cannot be followed as written.
+which is not valid Dart; and `3672f49` gave the wrong REASON why `dart pub add`
+then `dart run example/...` cannot be followed as written.
 
-### Two looms, because eight releases of green checks caught none of this
+⚑ **That clause was the FOURTH false sentence in this release, and it asserted the
+very proposition this changelog retracts sixty lines above.** ⚑ It never reached a
+reader: at published 0.2.9 neither README said anything on the subject — both
+passages are net insertions on this branch — so the wrong reason existed only here,
+unpublished, and is corrected here. Its first draft said the READMEs
+"now say that the examples live in the repository, not in the published package" — they say
+the **opposite**, at this same commit, and that proposition is the one line 5 calls *"false
+against our own tarball"*. It survived because it was the third item in a list whose first
+two were true, in a paragraph nobody revisited when the narrative reversed. **The true
+reason is the one the READMEs give: the examples ship, but they land in your pub cache
+rather than your project directory.**
+
+### Two looms, because every green check we had caught none of this
 
 `tool/gen_signal_table.dart --check` and `tool/vss_sync.sh` already guard the
 README's signal table against the vendored spec. Neither reads a shell command or
-a Dart snippet, and no CI step ever executed an example. Two checks now do:
+a Dart snippet, and **no CI step ever ran a command out of a README, or executed
+either Dart example** — `dart format` names them and nothing runs them. (The
+`flutter-example` job does run the Flutter example's own tests, which render real
+PNGs; it reads no documentation. An earlier draft of this paragraph said no CI
+step executed an example at all, which that job refutes.) Two checks now do:
 
 - **`tool/doc_commands_check.dart`** (new — nothing here did this) runs every
   shell command in every README against the real thing it names. A `docker run`
@@ -393,7 +408,8 @@ API-reference page.
 
 **We cannot retract the affected versions.** pub.dev permits retraction only
 within seven days of publication, and every one of those windows closed before
-we acted — the earliest 128 days ago. Their pages remain online and still show
+we acted — the earliest on 2026-04-19, seven days after 0.1.0. Their pages remain
+online and still show
 the wrong rule. This entry is the only notice we can give you, which is why it
 is at the top of this one.
 

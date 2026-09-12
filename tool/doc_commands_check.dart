@@ -17,8 +17,8 @@
 ///
 /// The databroker has no mock mode and has never had that flag; the command
 /// answers `error: unexpected argument '--mock-datapoints' found` and exits 2.
-/// It is in **all 12 published versions**, 0.1.0 (2026-04-12) through 0.2.9 —
-/// 153 days — measured by reading each archive off pub.dev, not by reading git
+/// It is in **all 12 published versions**, 0.1.0 (2026-04-12) through
+/// 0.2.9 (2026-09-11) — measured by reading each archive off pub.dev, not git
 /// history, which does not contain the published trees. Every check was green
 /// throughout, under the heading **Prerequisites**, the first command a
 /// stranger runs. `--self-test`
