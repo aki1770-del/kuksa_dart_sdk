@@ -71,8 +71,8 @@ reader: at published 0.2.9 neither README said anything on the subject — both
 passages are net insertions on this branch — so the wrong reason existed only here,
 unpublished, and is corrected here. Its first draft said the READMEs
 "now say that the examples live in the repository, not in the published package" — they say
-the **opposite**, at this same commit, and that proposition is the one line 5 calls *"false
-against our own tarball"*. It survived because it was the third item in a list whose first
+the **opposite**, at this same commit, and that proposition is the one this entry's own
+opening retraction calls *"false against our own tarball"*. It survived because it was the third item in a list whose first
 two were true, in a paragraph nobody revisited when the narrative reversed. **The true
 reason is the one the READMEs give: the examples ship, but they land in your pub cache
 rather than your project directory.**
