@@ -343,8 +343,9 @@ Flutter / Dart app
 ```
 
 This package is part of the [SNGNav](https://github.com/aki1770-del/SNGNav) winter navigation stack.
-The `navigation_safety` package consumes KUKSA signals via `kuksa_dart_sdk` to adapt
-routing decisions in real-time based on road surface conditions.
+`lib/providers/kuksa_condition_provider.dart` in the SNGNav app is the actual consumer — a thin
+adapter that decodes subscribed VSS datapoints and feeds them to `vehicle_condition_fusion`, which
+holds the single source of truth for the calibrated road-condition assessment.
 
 ---
 

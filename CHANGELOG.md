@@ -1,3 +1,14 @@
+## Unreleased
+
+### The README named the wrong consumer
+
+"This package is part of the SNGNav winter navigation stack. The `navigation_safety`
+package consumes KUKSA signals via `kuksa_dart_sdk`" — `navigation_safety` imports
+nothing from this package. Measured against the actual tree: the consumer is
+`lib/providers/kuksa_condition_provider.dart` in the SNGNav app itself, a thin adapter
+that decodes subscribed datapoints and hands them to `vehicle_condition_fusion`, which
+holds the calibrated assessment. Corrected to name the real file.
+
 ## 0.2.10
 
 ### ⚑ The repair for the defect below shipped a NEW false sentence, caught before publish
