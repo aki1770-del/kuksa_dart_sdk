@@ -18,12 +18,43 @@ set -euo pipefail
 PROTO_SRC="${1:-../kuksa-proto}"
 OUT_DIR="lib/src/generated"
 
+# Pinned upstream commit. This is what the generated stubs in $OUT_DIR were
+# last verified against (kuksa/val/v2/{types,val}.proto byte-diffed against
+# this exact SHA, 2026-09-27 — see CHANGELOG.md). Without this pin, "regenerate
+# the protos" silently means "regenerate against whatever main happens to be
+# today", and drift becomes invisible until something breaks at runtime.
+# Update this SHA — deliberately, in its own commit — when you intend to move
+# to a newer upstream proto revision, not as a side effect of running this
+# script against a stale local clone.
+PROTO_REF="28bf76ae57085dad425eedd95bc7bd442e1314a7"
+
 if [ ! -d "$PROTO_SRC/kuksa/val/v2" ]; then
   echo "ERROR: Proto source not found at $PROTO_SRC/kuksa/val/v2"
   echo "Clone the canonical proto repo first:"
   echo "  git clone https://github.com/eclipse-kuksa/kuksa-proto ../kuksa-proto"
+  echo "  git -C ../kuksa-proto checkout $PROTO_REF"
   echo "Usage: $0 [path/to/kuksa-proto]"
   exit 1
+fi
+
+if [ -d "$PROTO_SRC/.git" ]; then
+  ACTUAL_REF="$(git -C "$PROTO_SRC" rev-parse HEAD)"
+  if [ "$ACTUAL_REF" != "$PROTO_REF" ]; then
+    echo "ERROR: $PROTO_SRC is at $ACTUAL_REF, not the pinned $PROTO_REF."
+    echo "Either:"
+    echo "  git -C $PROTO_SRC checkout $PROTO_REF"
+    echo "or, if you deliberately mean to move the pin, update PROTO_REF in"
+    echo "this script (own commit) after confirming the generated stubs still"
+    echo "match kuksa.val.v2's actual wire contract at the new SHA."
+    echo "Override once, at your own risk: KUKSA_PROTO_SKIP_REF_CHECK=1 $0 $*"
+    if [ "${KUKSA_PROTO_SKIP_REF_CHECK:-0}" != "1" ]; then
+      exit 1
+    fi
+    echo "KUKSA_PROTO_SKIP_REF_CHECK=1 set — proceeding against $ACTUAL_REF anyway."
+  fi
+else
+  echo "WARNING: $PROTO_SRC is not a git checkout — cannot verify it is at the" \
+       "pinned ref $PROTO_REF. Proceeding anyway."
 fi
 
 mkdir -p "$OUT_DIR"
@@ -36,4 +67,5 @@ protoc \
   kuksa/val/v2/types.proto \
   kuksa/val/v2/val.proto
 
-echo "Protos generated in $OUT_DIR"
+echo "Protos generated in $OUT_DIR from $PROTO_SRC at $PROTO_REF"
+

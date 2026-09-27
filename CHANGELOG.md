@@ -1,5 +1,16 @@
 ## Unreleased
 
+### `generate_protos.sh` had no pinned upstream ref
+
+The script named `eclipse-kuksa/kuksa-proto` as the proto source but never pinned a
+commit — "regenerate the protos" silently meant "regenerate against whatever `main`
+happens to be today", so drift between the vendored stubs and upstream was only
+checkable by hand (as done here: fetched `kuksa/val/v2/{types,val}.proto` at upstream
+`main` tip `28bf76ae5`, byte-compared every RPC name and `Value` oneof tag against the
+vendored `.pb.dart`/`.pbgrpc.dart` — no drift found). The script now pins that same SHA
+as `PROTO_REF` and refuses to generate against a differently-checked-out source unless
+told to explicitly, so the next drift doesn't need a manual live diff to catch.
+
 ### The README named the wrong consumer
 
 "This package is part of the SNGNav winter navigation stack. The `navigation_safety`
