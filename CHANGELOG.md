@@ -1,5 +1,31 @@
 ## Unreleased
 
+### Vendored VSS spec re-synced with COVESA; no documented contract moved
+
+The weekly `vss-upstream-drift` check went red on 2026-10-05: COVESA merged
+vehicle_signal_specification#944 ("VehicleIdentification: WMI definition, AcrissCode
+pattern, BodyType citation") to `master`. `spec/Body.vspec` and `spec/Vehicle.vspec` are
+re-synced to COVESA `master` at `923692329b`; the other five vendored files were already
+identical to it.
+
+What upstream changed, in full:
+
+- `Vehicle.Body.BodyType`: the description is reworded ("from the type-approval or
+  registration scheme it is subject to"), and a comment now says ISO 3779 defines the VIN
+  and no body type codes.
+- `Vehicle.VehicleIdentification.WMI`: the description now allows a six-character WMI for
+  a low-volume manufacturer, and a new `pattern` limits the value to three or six
+  characters of the VIN alphabet.
+- `Vehicle.VehicleIdentification.AcrissCode`: a new `pattern` limits the value to four
+  capital letters.
+
+The two `pattern`s narrow the allowed values of two string attributes. This package does
+not classify or document any of the three signals above: none of them appears in `lib/`,
+`example/`, `test/` or the README. No unit, range, datatype or allowed value changed for
+any signal in the README table or in `kSnowSafetySignals`, so no documented contract moved
+and no classifier threshold was revisited. The regenerated README signal table is
+byte-identical.
+
 ### `generate_protos.sh` had no pinned upstream ref
 
 The script named `eclipse-kuksa/kuksa-proto` as the proto source but never pinned a
