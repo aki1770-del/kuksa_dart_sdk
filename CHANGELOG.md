@@ -1,5 +1,34 @@
 ## Unreleased
 
+### Vendored VSS spec re-synced with COVESA #932 (ACEA FMS signals); additions only
+
+The weekly `vss-upstream-drift` check went red on 2026-10-12 (run 38205043455, `main`
+354d4c8): COVESA merged vehicle_signal_specification#932 ("Acea fms05_11_11_2025
+signals") to `master` on 2026-10-07 as `dcc7cf570f`. `spec/ADAS.vspec`, `spec/Body.vspec`,
+`spec/Chassis.vspec` and `spec/Vehicle.vspec` are re-synced to COVESA `master` at
+`dcc7cf570f`; the other three vendored files were already identical to it.
+
+What upstream changed in the vendored files, in full (blank lines aside):
+
+- `Vehicle.ADAS.CruiseControl`: two new signals, `IsSwitchedOn` (boolean, with a comment
+  saying it is the switch position, not the system status) and `State` (uint8 enum).
+- `Vehicle.Chassis`: two new signals, `Axle.Weight` (uint16, kg) and
+  `Brake.IsBrakePedalPressed` (boolean); new includes for `AirBrakeSystem.vspec` and
+  `Retarder.vspec` (under `Brake`) and `Suspension.vspec`; a new comment on `Axle` saying
+  the axle count is an example; one blank line removed.
+- `Vehicle.Body`: new includes for `BusDoors.vspec` and `Accessibility.vspec`, each with a
+  one-line comment.
+- `Vehicle`: two new signals, `GrossCombinationVehicleWeight` (uint32, kg) and
+  `CurrentDateTime` (string, iso8601).
+
+No existing line was modified. Because a new include could redefine an existing signal,
+the whole COVESA tree was also exported at both commits with COVESA's own `vss-tools`
+(`5e218568`): all 1,750 existing nodes are present with no attribute changed, and 266 nodes
+(branches and signals) are added by this one commit. No unit, range, datatype or allowed
+value changed for any signal in the README table or in `kSnowSafetySignals`, so no
+documented contract moved and no classifier threshold was revisited. The regenerated README
+signal table is byte-identical.
+
 ### Vendored VSS spec re-synced with COVESA; no documented contract moved
 
 The weekly `vss-upstream-drift` check went red on 2026-10-05: COVESA merged
